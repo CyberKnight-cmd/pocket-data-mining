@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use dialoguer::{theme::ColorfulTheme, Select, Input};
-use pocket_data_mining::mining::{Fhm, TwoPhase, Ihup, HupTree, UpGrowth, Efim, HuimAlgorithm};
+use pocket_data_mining::mining::{Fhm, TwoPhase, Ihup, HupTree, UpGrowth, Efim, HuimAlgorithm, HuiTrie};
+use pocket_data_mining::mining::algorithms::{efim_closed::EfimClosed, haui_miner::HauiMiner};
 
 #[derive(Parser)]
 #[command(name = "air-huim", about = "Adaptive Out-of-core Resource-aware High-Utility Itemset Mining", version)]
@@ -123,12 +124,21 @@ fn run_interactive_wizard(
                 "  UP-Growth+ (Improved DLU/DLN Bounds)",
                 "  IHUP (Incremental HUP-Tree)",
                 "  HUP-Tree (Header-Table Utility Prefix)",
+                "  HUI-Trie (Trie-based Exact Mining)",
                 "── Family 3: Utility-List ──",
                 "  FHM (Fastest — EUCS Pruning)               ★ Budget-Safe",
                 "  FHM+ (FHM + Length Constraints)             ★ Budget-Safe",
                 "  HUI-Miner (Classic, No EUCS)                ★ Budget-Safe",
+                "  HUP-Miner (Parallel Utility Lists)          ★ Budget-Safe",
+                "  mHUIMiner (Memory-Adaptive Utility Lists)   ★ Budget-Safe",
                 "── Family 4: Database Projection ──",
                 "  EFIM (Transaction Merging + Projection)",
+                "  EFIM-Closed (Closed Itemset Projection)",
+                "  HAUI-Miner (Approximate Utilities via Projection)",
+                "── Family 5: Top-K ──",
+                "  TKU (Top-K Utility Tree)",
+                "  TKO (Top-K in One phase)",
+                "  REPT (Top-K with Early Pruning)",
             ];
             let algo_idx = Select::with_theme(&theme)
                 .with_prompt("Select Mining Algorithm")
@@ -142,10 +152,18 @@ fn run_interactive_wizard(
                 4 => "up-growth-plus",
                 5 => "ihup",
                 6 => "hup-tree",
-                8 => "fhm",
-                9 => "fhm-plus",
-                10 => "hui-miner",
-                12 => "efim",
+                7 => "hui-trie",
+                9 => "fhm",
+                10 => "fhm-plus",
+                11 => "hui-miner",
+                12 => "hup-miner",
+                13 => "mhuiminer",
+                15 => "efim",
+                16 => "efim-closed",
+                17 => "haui-miner",
+                19 => "tku",
+                20 => "tko",
+                21 => "rept",
                 _ => {
                     println!("Please select an algorithm, not a family header.");
                     std::process::exit(1);
@@ -211,6 +229,12 @@ fn run_interactive_wizard(
         }
     }
 
+    if top_k.is_some() && algorithm.as_str() != "tko" && algorithm.as_str() != "rept" && algorithm.as_str() != "tku" {
+        println!("\n[ERROR] You selected Top-K mode, but '{}' does not support it natively.", algorithm);
+        println!("Only Family 5 algorithms (like TKU, TKO and REPT) support Top-K mode. For '{}', please run again and select 'Minimum Utility Threshold'.", algorithm);
+        std::process::exit(1);
+    }
+
     let budget_mb = match cli_budget_mb {
         Some(b) => {
             println!("Memory Budget: {} MB (auto-selected from CLI)", b);
@@ -235,7 +259,7 @@ fn run_interactive_wizard(
     
     // Per-thread RAM cost based on actual dataset density
     let (ram_per_thread_mb, is_lock_bound) = match algorithm.as_str() {
-        "up-growth" | "up-growth-plus" | "up-growth+" | "ihup" | "hup-tree" => {
+        "up-growth" | "up-growth-plus" | "up-growth+" | "ihup" | "hup-tree" | "hui-trie" => {
             (stats.estimated_db_ram_bytes as f64 / 1024.0 / 1024.0, true)
         },
         "efim" => {
@@ -243,7 +267,7 @@ fn run_interactive_wizard(
             let per_thread = (stats.estimated_db_ram_bytes as f64 * stats.density * 100.0).max(50.0 * 1024.0 * 1024.0);
             (per_thread / 1024.0 / 1024.0, false)
         },
-        "fhm" | "fhm+" | "fhm-plus" | "hui-miner" => {
+        "fhm" | "fhm+" | "fhm-plus" | "hui-miner" | "hup-miner" | "mhuiminer" | "mhui-miner" => {
             // Utility-list algorithms: per-thread cost is ~2x EUCS + utility list headers
             let eucs_mb = (stats.num_unique_items * stats.num_unique_items * 8) as f64 / 1024.0 / 1024.0;
             (eucs_mb.min(200.0) + 50.0, false)
@@ -376,14 +400,22 @@ fn run_mining(
     
     let mut algo_box: Box<dyn HuimAlgorithm> = match algorithm.as_str() {
         "efim" => Box::new(Efim::new()),
+        "efim-closed" => Box::new(EfimClosed::new()),
+        "haui-miner" => Box::new(HauiMiner::new()),
         "fhm" => Box::new(Fhm::new(prefetch)),
+        "tku" => Box::new(pocket_data_mining::mining::algorithms::tku::Tku::new(prefetch)),
+        "tko" => Box::new(pocket_data_mining::mining::algorithms::tko::Tko::new(prefetch)),
+        "rept" => Box::new(pocket_data_mining::mining::algorithms::rept::Rept::new(prefetch)),
         "fhm+" | "fhm-plus" => Box::new(pocket_data_mining::mining::algorithms::fhm_plus::FhmPlus::new(prefetch)),
         "hui-miner" => Box::new(pocket_data_mining::mining::algorithms::hui_miner::HuiMiner::new(prefetch)),
         "two-phase" => Box::new(TwoPhase::new()),
         "ihup" => Box::new(Ihup::new()),
         "hup-tree" => Box::new(HupTree::new()),
+        "hui-trie" => Box::new(HuiTrie::new()),
         "up-growth" => Box::new(UpGrowth::new()),
         "up-growth-plus" | "up-growth+" => Box::new(pocket_data_mining::mining::algorithms::up_growth::UpGrowthPlus::new()),
+        "hup-miner" => Box::new(pocket_data_mining::mining::algorithms::hup_miner::HupMiner::new(prefetch)),
+        "mhuiminer" | "mhui-miner" => Box::new(pocket_data_mining::mining::algorithms::mhui_miner::MHuiMiner::new(prefetch)),
         _ => {
             println!("Unknown algorithm: {}", algorithm);
             std::process::exit(1);

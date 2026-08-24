@@ -40,7 +40,7 @@ impl IhupTree {
         }
     }
 
-    fn insert(&mut self, path: &[ItemId], path_twu: Utility) {
+    fn insert(&mut self, path: &[ItemId], path_twu: Utility, guard: &MemoryGuard) -> io::Result<()> {
         let mut current = 0;
         for &item in path {
             let mut found = None;
@@ -54,6 +54,9 @@ impl IhupTree {
                 self.nodes[child].twu += path_twu;
                 current = child;
             } else {
+                if !guard.try_alloc(std::mem::size_of::<IhupNode>()) {
+                    return Err(io::Error::new(io::ErrorKind::OutOfMemory, "IHUP Tree Memory Budget Exceeded"));
+                }
                 let new_idx = self.nodes.len();
                 let next = self.header_table.get(&item).cloned().flatten();
                 self.nodes.push(IhupNode {
@@ -68,10 +71,11 @@ impl IhupTree {
                 current = new_idx;
             }
         }
+        Ok(())
     }
 }
 
-fn mine_tree(tree: &IhupTree, prefix: &[ItemId], min_utility: Utility, candidates: &mut Vec<Vec<ItemId>>, guard: &MemoryGuard) {
+fn mine_tree(tree: &IhupTree, prefix: &[ItemId], min_utility: Utility, candidates: &mut Vec<Vec<ItemId>>, guard: &MemoryGuard) -> io::Result<()>  {
     for &item in tree.items_order.iter().rev() {
         let mut curr = tree.header_table.get(&item).cloned().flatten();
         let mut path_twu_sum = 0;
@@ -131,12 +135,13 @@ fn mine_tree(tree: &IhupTree, prefix: &[ItemId], min_utility: Utility, candidate
                 .filter(|i| local_twu.get(i).copied().unwrap_or(0) >= min_utility)
                 .collect();
             if !filtered_path.is_empty() {
-                cond_tree.insert(&filtered_path, twu);
+                cond_tree.insert(&filtered_path, twu, guard)?;
             }
         }
         
-        mine_tree(&cond_tree, &new_prefix, min_utility, candidates, guard);
+        mine_tree(&cond_tree, &new_prefix, min_utility, candidates, guard)?;
     }
+    Ok(())
 }
 
 pub struct Ihup;
@@ -182,7 +187,7 @@ impl HuimAlgorithm for Ihup {
             
             if !tx_items.is_empty() {
                 tx_items.sort_by(|a, b| twu_1[b].cmp(&twu_1[a]).then_with(|| a.cmp(b)));
-                tree.insert(&tx_items, tx.transaction_utility);
+                tree.insert(&tx_items, tx.transaction_utility, &ctx.guard)?;
             }
         }
 
@@ -191,7 +196,7 @@ impl HuimAlgorithm for Ihup {
 
         ctx.progress.set_stage("Phase 1: Mining IHUP-Tree");
         let mut all_candidates = Vec::new();
-        mine_tree(&tree, &[], ctx.min_utility, &mut all_candidates, &ctx.guard);
+        mine_tree(&tree, &[], ctx.min_utility, &mut all_candidates, &ctx.guard)?;
 
         ctx.progress.set_stage("Phase 2: Computing Exact Utilities");
         

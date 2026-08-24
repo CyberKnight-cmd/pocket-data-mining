@@ -6,7 +6,7 @@ use crate::mining::{core::HuimAlgorithm, core::MiningContext, core::DataSource, 
 use crate::preprocessing::db_reader::DbReader;
 use crate::types::{ItemId, Utility};
 
-struct HupNode {
+struct TrieNode {
     item: ItemId,
     twu: Utility,
     parent: usize,
@@ -14,20 +14,20 @@ struct HupNode {
     next: Option<usize>,
 }
 
-struct HupTreeStruct {
-    nodes: Vec<HupNode>,
+struct HuiTrieStruct {
+    nodes: Vec<TrieNode>,
     header_table: HashMap<ItemId, Option<usize>>,
     items_order: Vec<ItemId>,
 }
 
-impl HupTreeStruct {
+impl HuiTrieStruct {
     fn new(items_order: Vec<ItemId>) -> Self {
         let mut header_table = HashMap::new();
         for &item in &items_order {
             header_table.insert(item, None);
         }
         Self {
-            nodes: vec![HupNode {
+            nodes: vec![TrieNode {
                 item: 0,
                 twu: 0,
                 parent: usize::MAX,
@@ -53,12 +53,12 @@ impl HupTreeStruct {
                 self.nodes[child].twu += path_twu;
                 current = child;
             } else {
-                if !guard.try_alloc(std::mem::size_of::<HupNode>()) {
-                    return Err(io::Error::new(io::ErrorKind::OutOfMemory, "HUP-Tree Memory Budget Exceeded"));
+                if !guard.try_alloc(std::mem::size_of::<TrieNode>()) {
+                    return Err(io::Error::new(io::ErrorKind::OutOfMemory, "HUI-Trie Memory Budget Exceeded"));
                 }
                 let new_idx = self.nodes.len();
                 let next = self.header_table.get(&item).cloned().flatten();
-                self.nodes.push(HupNode {
+                self.nodes.push(TrieNode {
                     item,
                     twu: path_twu,
                     parent: current,
@@ -74,7 +74,7 @@ impl HupTreeStruct {
     }
 }
 
-fn mine_tree(tree: &HupTreeStruct, prefix: &[ItemId], min_utility: Utility, candidates: &mut Vec<Vec<ItemId>>, ctx: &MiningContext) -> io::Result<()> {
+fn mine_tree(tree: &HuiTrieStruct, prefix: &[ItemId], min_utility: Utility, candidates: &mut Vec<Vec<ItemId>>, ctx: &MiningContext) -> io::Result<()> {
     ctx.progress.set_active_prefix(prefix);
     for &item in tree.items_order.iter().rev() {
         let mut curr = tree.header_table.get(&item).cloned().flatten();
@@ -127,7 +127,7 @@ fn mine_tree(tree: &HupTreeStruct, prefix: &[ItemId], min_utility: Utility, cand
         
         local_items.sort_by_key(|i| tree.items_order.iter().position(|x| x == i).unwrap());
         
-        let mut cond_tree = HupTreeStruct::new(local_items.clone());
+        let mut cond_tree = HuiTrieStruct::new(local_items.clone());
         for (path, twu) in cpb {
             let filtered_path: Vec<ItemId> = path.into_iter()
                 .filter(|i| local_twu.get(i).copied().unwrap_or(0) >= min_utility)
@@ -142,14 +142,14 @@ fn mine_tree(tree: &HupTreeStruct, prefix: &[ItemId], min_utility: Utility, cand
     Ok(())
 }
 
-pub struct HupTree;
+pub struct HuiTrie;
 
-impl HupTree {
+impl HuiTrie {
     pub fn new() -> Self { Self }
 }
 
-impl HuimAlgorithm for HupTree {
-    fn name(&self) -> &'static str { "HUP-Tree" }
+impl HuimAlgorithm for HuiTrie {
+    fn name(&self) -> &'static str { "HUI-Trie" }
 
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
         let file_path = source.expect_file(self.name()).to_path_buf();
@@ -172,9 +172,9 @@ impl HuimAlgorithm for HupTree {
             
         valid_items.sort_by(|a, b| twu_1[b].cmp(&twu_1[a]).then_with(|| a.cmp(b)));
 
-        ctx.progress.set_stage("Phase 1: Building HUP-Tree");
+        ctx.progress.set_stage("Phase 1: Building HUI-Trie");
         
-        let mut tree = HupTreeStruct::new(valid_items.clone());
+        let mut tree = HuiTrieStruct::new(valid_items.clone());
         let reader = DbReader::new(BufReader::new(File::open(&file_path)?));
         for tx_res in reader {
             let tx = tx_res?;
@@ -189,10 +189,10 @@ impl HuimAlgorithm for HupTree {
             }
         }
 
-        let tree_bytes = tree.nodes.len() * std::mem::size_of::<HupNode>();
+        let tree_bytes = tree.nodes.len() * std::mem::size_of::<TrieNode>();
         ctx.guard.force_alloc(tree_bytes);
 
-        ctx.progress.set_stage("Phase 1: Mining HUP-Tree");
+        ctx.progress.set_stage("Phase 1: Mining HUI-Trie");
         let mut all_candidates = Vec::new();
         mine_tree(&tree, &[], ctx.min_utility, &mut all_candidates, ctx)?;
 
@@ -245,3 +245,4 @@ impl HuimAlgorithm for HupTree {
         Ok(task_count)
     }
 }
+

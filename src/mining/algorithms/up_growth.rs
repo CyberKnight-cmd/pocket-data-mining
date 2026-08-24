@@ -125,9 +125,20 @@ impl UpTree {
         })
     }
 
-    fn insert(&mut self, arena: &mut NodeArena, items: &[(ItemId, Utility)], mut rtu: Utility) -> io::Result<()> {
+    fn insert(&mut self, arena: &mut NodeArena, items: &[(ItemId, Utility)], rtu: Utility) -> io::Result<()> {
         let mut curr = self.root;
-        for &(item, util) in items {
+        let _current_rtu = rtu;
+        for (i, &(item, _util)) in items.iter().enumerate() {
+            // Compute nu = rtu - sum(descendants)
+            // Or equivalently, nu = sum of utilities of items from root to current node
+            // Wait, if it subtracts descendants, then nu = current_rtu!
+            // But current_rtu must be decremented by descendants? No, current_rtu is RTU - sum of items AFTER this node?
+            // Let's compute nu exactly: sum of utilities from 0 to i inclusive.
+            let mut nu = 0;
+            for j in 0..=i {
+                nu += items[j].1;
+            }
+
             let curr_node = arena.get_node(curr)?;
             let mut child_ptr = curr_node.first_child;
             let mut found = false;
@@ -135,7 +146,7 @@ impl UpTree {
             while child_ptr != u32::MAX {
                 let mut child_node = arena.get_node(child_ptr)?;
                 if child_node.item == item {
-                    child_node.nu += rtu;
+                    child_node.nu += nu;
                     arena.set_node(child_ptr, child_node)?;
                     curr = child_ptr;
                     found = true;
@@ -145,7 +156,7 @@ impl UpTree {
             }
 
             if !found {
-                let new_child = arena.allocate_node(item, rtu, curr)?;
+                let new_child = arena.allocate_node(item, nu, curr)?;
                 let mut curr_node = arena.get_node(curr)?;
                 
                 let mut child_node = arena.get_node(new_child)?;
@@ -167,7 +178,6 @@ impl UpTree {
                 }
                 curr = new_child;
             }
-            rtu -= util;
         }
         Ok(())
     }

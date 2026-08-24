@@ -53,3 +53,11 @@ Where $D$ is the maximum transaction length. In practice, this peaks at around *
 EFIM uses a horizontal database projection method. Unlike the Vertical DFS, EFIM creates dense arrays (Local Utility Arrays) for every recursive call.
 Because these arrays must scale with the database size at *every* node in the recursion tree, executing EFIM in parallel across 16 threads causes linear RAM multiplication, immediately breaking the budget.
 Therefore, the Concurrency Predictor strictly restricts EFIM to **Single-Threaded** execution, utilizing `ChunkStore` disk-paging to dump projection arrays when the tree gets too deep.
+
+## 4. Algorithm: FHM and TKO (Family 5)
+FHM (Fast High-Utility Miner) builds upon the Vertical DFS architecture by utilizing **Utility-Lists**. A Utility-List tracks not just the exact utility of an itemset in each transaction, but also its "remaining utility", allowing for incredibly tight upper-bound pruning without needing full database scans.
+
+**TKO (Top-K in One phase)** is the ultimate evolution of FHM for Top-K mining. It maintains a global, thread-safe Min-Heap of the top $K$ itemsets discovered so far. 
+- The minimum utility threshold starts at 0.
+- When the Min-Heap reaches size $K$, the global min_utility is dynamically raised to the value of the root of the heap.
+- As mining progresses in parallel, the threshold aggressively rockets upward, instantly pruning billions of combinatorial sub-trees across all Rayon threads.
