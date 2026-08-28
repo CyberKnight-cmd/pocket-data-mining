@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use dialoguer::{theme::ColorfulTheme, Select, Input};
 use pocket_data_mining::mining::{Fhm, TwoPhase, Ihup, HupTree, UpGrowth, Efim, HuimAlgorithm, HuiTrie};
-use pocket_data_mining::mining::algorithms::{efim_closed::EfimClosed, haui_miner::HauiMiner};
+use pocket_data_mining::mining::algorithms::{efim_closed::EfimClosed, haui_miner::HauiMiner, huim_mmu::HuimMmu, shuim::Shuim, inc_fhm::IncFhm};
 
 #[derive(Parser)]
 #[command(name = "air-huim", about = "Adaptive Out-of-core Resource-aware High-Utility Itemset Mining", version)]
@@ -139,6 +139,10 @@ fn run_interactive_wizard(
                 "  TKU (Top-K Utility Tree)",
                 "  TKO (Top-K in One phase)",
                 "  REPT (Top-K with Early Pruning)",
+                "── Family 6: Streaming / Incremental ──",
+                "  HUIM-MMU (Sliding Window MMU)",
+                "  SHUIM (Streaming HUIM)",
+                "  IncFHM (Incremental FHM)",
             ];
             let algo_idx = Select::with_theme(&theme)
                 .with_prompt("Select Mining Algorithm")
@@ -164,6 +168,9 @@ fn run_interactive_wizard(
                 19 => "tku",
                 20 => "tko",
                 21 => "rept",
+                23 => "huim-mmu",
+                24 => "shuim",
+                25 => "incfhm",
                 _ => {
                     println!("Please select an algorithm, not a family header.");
                     std::process::exit(1);
@@ -265,7 +272,7 @@ fn run_interactive_wizard(
         "efim" => {
             // EFIM per-thread cost scales with density
             let per_thread = (stats.estimated_db_ram_bytes as f64 * stats.density * 100.0).max(50.0 * 1024.0 * 1024.0);
-            (per_thread / 1024.0 / 1024.0, false)
+            (per_thread / 1024.0 / 1024.0, true) // Force single-threaded as per docs
         },
         "fhm" | "fhm+" | "fhm-plus" | "hui-miner" | "hup-miner" | "mhuiminer" | "mhui-miner" => {
             // Utility-list algorithms: per-thread cost is ~2x EUCS + utility list headers
@@ -416,6 +423,9 @@ fn run_mining(
         "up-growth-plus" | "up-growth+" => Box::new(pocket_data_mining::mining::algorithms::up_growth::UpGrowthPlus::new()),
         "hup-miner" => Box::new(pocket_data_mining::mining::algorithms::hup_miner::HupMiner::new(prefetch)),
         "mhuiminer" | "mhui-miner" => Box::new(pocket_data_mining::mining::algorithms::mhui_miner::MHuiMiner::new(prefetch)),
+        "huim-mmu" => Box::new(HuimMmu::new(prefetch)),
+        "shuim" => Box::new(Shuim::new(prefetch)),
+        "incfhm" => Box::new(IncFhm::new(prefetch)),
         _ => {
             println!("Unknown algorithm: {}", algorithm);
             std::process::exit(1);

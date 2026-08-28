@@ -297,3 +297,4 @@ fn mine_haui_miner(
         guard.free(new_bytes);
     }
 }
+

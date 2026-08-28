@@ -143,6 +143,37 @@ impl BufferPool {
         Ok(crate::buffer_pool::frame::PinMutGuard::new(page_id, ptr, len, Arc::clone(self)))
     }
 
+    /// Insert a newly created page directly into the BufferPool.
+    /// This is strictly required to prevent the algorithm from bypassing the BufferPool budget
+    /// and writing directly to the ChunkStore.
+    pub fn insert_page(&self, page_id: PageId, data: Vec<u8>) -> io::Result<()> {
+        let page_size = data.len();
+        
+        while self.used_bytes() + page_size > self.budget_bytes() {
+            match self.evict_one()? {
+                Some(_) => {}
+                None => return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Buffer pool full ({}/{} bytes), all pages pinned", self.used_bytes(), self.budget_bytes()),
+                )),
+            }
+        }
+
+        let mut frame = crate::buffer_pool::frame::Frame::new(page_id, data.into_boxed_slice());
+        frame.meta.pin_count = 0;
+        frame.meta.access_count = 1;
+        frame.meta.last_access_tick = self.tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u64;
+        frame.meta.dirty = true; // MUST be dirty so it flushes to disk upon eviction!
+        frame.meta.reload_cost_ns = 50_000; // estimated reload cost since it hasn't been loaded
+
+        self.used_bytes.fetch_add(page_size, std::sync::atomic::Ordering::Relaxed);
+        self.metrics.update_peak(self.used_bytes() as u64);
+
+        self.frames.insert(page_id, frame);
+        self.eviction.lock().on_insert(page_id);
+        Ok(())
+    }
+
     pub fn unpin(&self, page_id: PageId) {
         if let Some(mut frame) = self.frames.get_mut(&page_id) {
             frame.meta.pin_count = frame.meta.pin_count.saturating_sub(1);

@@ -15,27 +15,47 @@ impl Eucs {
         Self { inner: HashMap::new() }
     }
 
-    pub fn add_transaction(&mut self, items: &[ItemId], tu: Utility) {
+    pub fn add_transaction(&mut self, items: &[ItemId], tu: Utility, guard: &crate::mining::core::MemoryGuard) -> bool {
         for i in 0..items.len() {
             for j in (i+1)..items.len() {
                 let (a, b) = if items[i] < items[j] { (items[i], items[j]) } else { (items[j], items[i]) };
+                if !self.inner.contains_key(&(a, b)) {
+                    if !guard.try_alloc(32) {
+                        return false; // Stop tracking further if OOM
+                    }
+                }
                 *self.inner.entry((a, b)).or_insert(0) += tu;
             }
         }
+        true
     }
-    /// Build from a collection of raw transactions.
-    pub fn build<'a, I>(transactions: I) -> Self
+    pub fn build<'a, I>(transactions: I, guard: &crate::mining::core::MemoryGuard) -> Self
     where
         I: Iterator<Item = &'a RawTransaction>,
     {
         let mut inner: HashMap<(ItemId, ItemId), Utility> = HashMap::new();
+        // Track unique pairs to estimate memory accurately (approx 32 bytes per entry)
+        let mut _capacity = 0;
+        let mut stopped = false;
+        
         for tx in transactions {
+            if stopped { break; }
             let items: Vec<ItemId> = tx.items.iter().map(|e| e.item).collect();
             for i in 0..items.len() {
                 for j in (i+1)..items.len() {
                     let (a, b) = if items[i] < items[j] { (items[i], items[j]) } else { (items[j], items[i]) };
+                    if !inner.contains_key(&(a, b)) {
+                        if !guard.try_alloc(32) {
+                            // If we hit OS budget limit, stop building EUCS gracefully
+                            // It will just be incomplete, and prune less efficiently.
+                            stopped = true;
+                            break;
+                        }
+                        _capacity += 1;
+                    }
                     *inner.entry((a, b)).or_insert(0) += tx.transaction_utility;
                 }
+                if stopped { break; }
             }
         }
         Self { inner }

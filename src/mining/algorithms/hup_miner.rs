@@ -139,8 +139,7 @@ impl HuimAlgorithm for HupMiner {
                     &[],
                     body_x,
                     body_y,
-                    ctx.store.as_ref(),
-                ).unwrap();
+                    &ctx.pool, ctx.store.as_ref()).unwrap();
 
                 if let UlBody::InMemory(_) = &new_body {
                     ctx.progress.fast_path_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -218,8 +217,7 @@ fn hup_miner_search(
                 prefix_body,
                 &body_px_entries,
                 &body_py_entries,
-                ctx.store.as_ref(),
-            )?;
+                &ctx.pool, ctx.store.as_ref())?;
 
             if let UlBody::InMemory(_) = &new_body {
                 ctx.progress.fast_path_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -261,3 +259,4 @@ fn get_body(
         }
     }
 }
+

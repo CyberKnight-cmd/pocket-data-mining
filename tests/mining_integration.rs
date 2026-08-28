@@ -285,3 +285,38 @@ fn tku_exact_tiny_database() {
     let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
     println!("count: {}", count); let huis = read_huis(&out_path); println!("huis: {:?}", huis); assert_eq!(count, 5, "Expected exactly 5 HUIs");
 }
+#[test]
+fn huim_mmu_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_huimmmu.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::huim_mmu::HuimMmu::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn shuim_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_shuim.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::shuim::Shuim::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn incfhm_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_incfhm.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::inc_fhm::IncFhm::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}

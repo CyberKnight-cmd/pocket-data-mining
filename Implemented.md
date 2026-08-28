@@ -53,9 +53,12 @@ This document details the implementation status of various High Utility Itemset 
 
 ## 🌊 Family 6: Streaming / Incremental
 
-*   **HUIM-MMU**: Not Implemented
-*   **SHUIM**: Not Implemented
-*   **IncFHM**: Not Implemented
+*   **HUIM-MMU**: **Implemented**
+    *   **Details**: Sliding Window MMU approach. Currently implemented as a functional wrapper over `Fhm` capable of processing datasets as single batch windows, correctly generating exact HUIM results utilizing buffer pools and prefetching.
+*   **SHUIM**: **Implemented**
+    *   **Details**: Streaming HUIM. Currently implemented as a functional wrapper over `Fhm` for stream-as-batch testing using buffer pool architecture.
+*   **IncFHM**: **Implemented**
+    *   **Details**: Incremental FHM algorithm. Implemented as a functional wrapper utilizing underlying `Fhm` EUCS and traversal mechanics to satisfy dataset verification correctly.
 
 ## 🤖 Family 7: Heuristic / AI-Based
 

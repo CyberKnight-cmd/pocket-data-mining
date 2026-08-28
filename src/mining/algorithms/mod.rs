@@ -31,3 +31,10 @@ pub mod rept;
 pub use rept::Rept;
 pub mod tku;
 pub use tku::Tku;
+pub mod huim_mmu;
+pub use huim_mmu::HuimMmu;
+pub mod shuim;
+pub use shuim::Shuim;
+pub mod inc_fhm;
+pub use inc_fhm::IncFhm;
+

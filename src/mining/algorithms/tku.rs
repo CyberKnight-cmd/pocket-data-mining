@@ -114,7 +114,9 @@ impl HuimAlgorithm for Tku {
         for tx in db_reader2.filter_map(Result::ok) {
             if let Some(filtered_tx) = twu_filter_result.apply(&tx) {
                 let items: Vec<ItemId> = filtered_tx.items.iter().map(|e| e.item).collect();
-                eucs.add_transaction(&items, filtered_tx.transaction_utility);
+                if !eucs.add_transaction(&items, filtered_tx.transaction_utility, &ctx.guard) {
+                    ctx.progress.set_stage("Pass 2: EUCS (OOM, partial pruning)");
+                }
 
                 let total_utility: Utility = filtered_tx.items.iter().map(|e| e.utility).sum();
                 let mut running_remaining: Utility = total_utility;
@@ -202,8 +204,7 @@ impl HuimAlgorithm for Tku {
                     &[],
                     body_x,
                     body_y,
-                    ctx.store.as_ref(),
-                ).unwrap();
+                    &ctx.pool, ctx.store.as_ref()).unwrap();
 
                 if let UlBody::InMemory(_) = &new_body {
                     ctx.progress.fast_path_writes.fetch_add(1, Ordering::Relaxed);
@@ -319,8 +320,7 @@ fn tku_search(
                 prefix_body,
                 &body_px_entries,
                 &body_py_entries,
-                ctx.store.as_ref(),
-            )?;
+                &ctx.pool, ctx.store.as_ref())?;
 
             if let UlBody::InMemory(_) = &new_body {
                 ctx.progress.fast_path_writes.fetch_add(1, Ordering::Relaxed);
@@ -356,3 +356,4 @@ fn get_body(
         }
     }
 }
+

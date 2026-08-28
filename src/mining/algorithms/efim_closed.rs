@@ -297,3 +297,4 @@ fn mine_efim_closed(
         guard.free(new_bytes);
     }
 }
+
