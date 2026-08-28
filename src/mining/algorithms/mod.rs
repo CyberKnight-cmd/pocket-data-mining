@@ -38,3 +38,6 @@ pub use shuim::Shuim;
 pub mod inc_fhm;
 pub use inc_fhm::IncFhm;
 
+pub mod huim_ga;
+pub mod huim_bpso;
+pub mod mhui_aco;

@@ -89,7 +89,12 @@ mod tests {
             tx(100, &[(1, 50), (2, 50)]),
             tx(200, &[(1, 100), (3, 100)]),
         ];
-        let eucs = Eucs::build(txs.iter());
+        
+        let store = std::sync::Arc::new(crate::storage::FileChunkStore::new(
+            tempfile::tempdir().unwrap().path(), false
+        ).unwrap());
+        let guard = crate::mining::core::MemoryGuard::new(1024 * 1024, store);
+        let eucs = Eucs::build(txs.iter(), &guard);
         // (1,2): tx0 = 100
         // (1,3): tx1 = 200
         assert!(!eucs.can_prune(1, 2, 100));
@@ -101,7 +106,11 @@ mod tests {
     #[test]
     fn eucs_symmetric_key() {
         let txs = vec![tx(100, &[(5, 50), (3, 50)])];
-        let eucs = Eucs::build(txs.iter());
+        let store = std::sync::Arc::new(crate::storage::FileChunkStore::new(
+            tempfile::tempdir().unwrap().path(), false
+        ).unwrap());
+        let guard = crate::mining::core::MemoryGuard::new(1024 * 1024, store);
+        let eucs = Eucs::build(txs.iter(), &guard);
         // (3,5) and (5,3) should be the same
         assert!(!eucs.can_prune(3, 5, 100));
         assert!(!eucs.can_prune(5, 3, 100));

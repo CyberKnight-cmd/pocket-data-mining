@@ -320,3 +320,75 @@ fn incfhm_exact_tiny_database() {
     let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
     assert_eq!(count, 5, "Expected exactly 5 HUIs");
 }
+#[test]
+fn huimga_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_huimga.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::huim_ga::HuimGa::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn huimbpso_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_huimbpso.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::huim_bpso::HuimBpso::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn mhuiaco_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_mhuiaco.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::mhui_aco::MhuiAco::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn upgrowthplus_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_upgrowthplus.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::up_growth::UpGrowthPlus::new();
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn huiminer_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_huiminer.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::hui_miner::HuiMiner::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+
+#[test]
+fn fhmplus_exact_tiny_database() {
+    let db_file = write_tiny_db();
+    let (store, _dir) = make_store();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out_path = out_dir.path().join("output_fhmplus.txt");
+    let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
+    let mut algo = pocket_data_mining::mining::algorithms::fhm_plus::FhmPlus::new(false);
+    let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
+    assert_eq!(count, 5, "Expected exactly 5 HUIs");
+}
+

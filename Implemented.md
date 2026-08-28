@@ -62,6 +62,9 @@ This document details the implementation status of various High Utility Itemset 
 
 ## 🤖 Family 7: Heuristic / AI-Based
 
-*   **HUIM-GA**: Not Implemented
-*   **HUIM-BPSO**: Not Implemented
-*   **MHUI-ACO**: Not Implemented
+*   **HUIM-GA**: **Implemented**
+    *   **Details**: Uses a Genetic Algorithm wrapper to evolve candidate itemsets to find high utility patterns securely.
+*   **HUIM-BPSO**: **Implemented**
+    *   **Details**: Implements Binary Particle Swarm Optimization to swarm profitable search spaces for HUIM.
+*   **MHUI-ACO**: **Implemented**
+    *   **Details**: Implements Ant Colony Optimization mechanics to dynamically traverse dataset search spaces.

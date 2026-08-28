@@ -116,14 +116,14 @@ fn run_interactive_wizard(
             a.to_lowercase()
         },
         None => {
-            let algorithms = &[
-                "── Family 1: Apriori ──",
+            let algorithms = [
+                "── Family 1: Level-Wise ──",
                 "  Two-Phase (Level-wise Candidate Generation)",
+                "  IHUP (Incremental HUP-Tree)",
+                "  HUP-Tree (Header-Table Utility Prefix)",
                 "── Family 2: Tree-Based ──",
                 "  UP-Growth (UP-Tree + DGU/DGN Pruning)",
                 "  UP-Growth+ (Improved DLU/DLN Bounds)",
-                "  IHUP (Incremental HUP-Tree)",
-                "  HUP-Tree (Header-Table Utility Prefix)",
                 "  HUI-Trie (Trie-based Exact Mining)",
                 "── Family 3: Utility-List ──",
                 "  FHM (Fastest — EUCS Pruning)               ★ Budget-Safe",
@@ -143,6 +143,10 @@ fn run_interactive_wizard(
                 "  HUIM-MMU (Sliding Window MMU)",
                 "  SHUIM (Streaming HUIM)",
                 "  IncFHM (Incremental FHM)",
+                "── Family 7: Heuristic / AI-Based ──",
+                "  HUIM-GA (Genetic Algorithm)",
+                "  HUIM-BPSO (Particle Swarm Optimization)",
+                "  MHUI-ACO (Ant Colony Optimization)",
             ];
             let algo_idx = Select::with_theme(&theme)
                 .with_prompt("Select Mining Algorithm")
@@ -152,10 +156,10 @@ fn run_interactive_wizard(
                 .unwrap();
             let algo_slug = match algo_idx {
                 1 => "two-phase",
-                3 => "up-growth",
-                4 => "up-growth-plus",
-                5 => "ihup",
-                6 => "hup-tree",
+                2 => "ihup",
+                3 => "hup-tree",
+                5 => "up-growth",
+                6 => "up-growth-plus",
                 7 => "hui-trie",
                 9 => "fhm",
                 10 => "fhm-plus",
@@ -171,6 +175,9 @@ fn run_interactive_wizard(
                 23 => "huim-mmu",
                 24 => "shuim",
                 25 => "incfhm",
+                27 => "huim-ga",
+                28 => "huim-bpso",
+                29 => "mhui-aco",
                 _ => {
                     println!("Please select an algorithm, not a family header.");
                     std::process::exit(1);
@@ -426,6 +433,9 @@ fn run_mining(
         "huim-mmu" => Box::new(HuimMmu::new(prefetch)),
         "shuim" => Box::new(Shuim::new(prefetch)),
         "incfhm" => Box::new(IncFhm::new(prefetch)),
+        "huim-ga" => Box::new(pocket_data_mining::mining::algorithms::huim_ga::HuimGa::new(prefetch)),
+        "huim-bpso" => Box::new(pocket_data_mining::mining::algorithms::huim_bpso::HuimBpso::new(prefetch)),
+        "mhui-aco" => Box::new(pocket_data_mining::mining::algorithms::mhui_aco::MhuiAco::new(prefetch)),
         _ => {
             println!("Unknown algorithm: {}", algorithm);
             std::process::exit(1);

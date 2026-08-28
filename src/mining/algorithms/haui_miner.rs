@@ -46,7 +46,7 @@ enum HauiMinerProj {
 }
 
 impl HauiMinerProj {
-    fn spill(proj: Vec<ProjTx>, guard: &MemoryGuard) -> io::Result<HauiMinerProj> {
+    fn spill(proj: Vec<ProjTx>, pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>, store: &dyn ChunkStore) -> io::Result<HauiMinerProj> {
         let count = proj.len();
         // Serialize manually — each ProjTx field individually to avoid packed-struct issues
         let mut bytes = Vec::with_capacity(count * 24);
@@ -57,14 +57,16 @@ impl HauiMinerProj {
             bytes.extend_from_slice(&p.prefix_utility.to_le_bytes());
             bytes.extend_from_slice(&p.path_utility.to_le_bytes());
         }
-        let page_id = guard.spill(&bytes)?;
+        let page_id = store.next_page_id();
+        pool.insert_page(page_id, bytes)?;
         // Memory is freed conceptually here, but `spill` internally handles tracking if necessary, 
         // or we just drop proj. The caller handles `guard.free()`.
         Ok(HauiMinerProj::OnDisk(page_id, count))
     }
 
-    fn load(page_id: PageId, count: usize, guard: &MemoryGuard) -> io::Result<Vec<ProjTx>> {
-        let buf = guard.load_and_delete(page_id)?;
+    fn load(page_id: PageId, count: usize, pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>) -> io::Result<Vec<ProjTx>> {
+        let guard = pool.pin(page_id)?;
+        let buf = &*guard;
         let mut result = Vec::with_capacity(count);
         let entry_bytes = 4 + 2 + 2 + 8 + 8; // tx_idx + offset + pad + prefix_util + path_util
         for i in 0..count {
@@ -134,6 +136,8 @@ impl HuimAlgorithm for HauiMiner {
         let min_u = ctx.min_utility;
         let progress = Arc::clone(&ctx.progress);
         let guard_ref = Arc::clone(&ctx.guard);
+        let pool_ref = Arc::clone(&ctx.pool);
+        let store_ref = Arc::clone(&ctx.store);
 
         ctx.execute_tasks(tasks, move |item, mut proxy| {
             let prefix = vec![item];
@@ -164,7 +168,7 @@ impl HuimAlgorithm for HauiMiner {
             let proj_bytes = initial_proj.len() * PROJ_ENTRY_SIZE;
 
             let proj = if !guard_ref.try_alloc(proj_bytes) {
-                match HauiMinerProj::spill(initial_proj, &guard_ref) {
+                match HauiMinerProj::spill(initial_proj, &pool_ref, store_ref.as_ref()) {
                     Ok(p) => p,
                     Err(_) => return,
                 }
@@ -175,7 +179,7 @@ impl HuimAlgorithm for HauiMiner {
             mine_haui_miner(
                 &db_ref, &prefix, proj, min_u,
                 &mut proxy, &progress,
-                &guard_ref,
+                &guard_ref, &pool_ref, store_ref.as_ref(),
             );
 
             // Release budget for this top-level item's initial projection
@@ -196,6 +200,8 @@ fn mine_haui_miner(
     proxy: &mut WriterProxy,
     progress: &MiningProgress,
     guard: &MemoryGuard,
+    pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>,
+    store: &dyn ChunkStore,
 ) {
     progress.set_active_prefix(prefix);
     progress.current_depth.store(prefix.len(), Ordering::Relaxed);
@@ -205,7 +211,7 @@ fn mine_haui_miner(
     let proj_slice: &[ProjTx] = match proj {
         HauiMinerProj::InMemory(ref v) => v.as_slice(),
         HauiMinerProj::OnDisk(page_id, count) => {
-            match HauiMinerProj::load(page_id, count, guard) {
+            match HauiMinerProj::load(page_id, count, pool) {
                 Ok(v) => { in_mem_loaded = v; in_mem_loaded.as_slice() }
                 Err(_) => return,
             }
@@ -280,7 +286,7 @@ fn mine_haui_miner(
 
         let next_proj = if !guard.try_alloc(new_bytes) {
             // Over budget — cancel the add and spill to disk
-            match HauiMinerProj::spill(new_proj, guard) {
+            match HauiMinerProj::spill(new_proj, pool, store) {
                 Ok(p) => p,
                 Err(_) => continue,
             }
@@ -290,7 +296,7 @@ fn mine_haui_miner(
 
         mine_haui_miner(
             db, &new_prefix, next_proj, min_util,
-            proxy, progress, guard,
+            proxy, progress, guard, pool, store,
         );
 
         // Release budget after this branch completes
