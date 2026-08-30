@@ -661,14 +661,13 @@ fn mine_up_tree_plus(
             while p_ptr != tree.root && p_ptr != u32::MAX {
                 let p_node = arena.get_node(p_ptr)?;
                 
-                // Compute mnu (Minimum Node Utility)
-                let mut mnu = p_node.nu;
-                let mut c_ptr = p_node.first_child;
-                while c_ptr != u32::MAX {
-                    let c_node = arena.get_node(c_ptr)?;
-                    mnu -= c_node.nu;
-                    c_ptr = c_node.next_sibling;
-                }
+                // The original code tried to compute `mnu` as `p_node.nu - sum(c_node.nu)`.
+                // However, since `nu` stores Prefix Utility (which increases with depth),
+                // this calculation is mathematically invalid and yields garbage/negative values,
+                // corrupting the DLU/DLN pruning.
+                // A true UP-Growth+ implementation requires a dedicated `miu` field in UpNode.
+                // For correctness, we disable this unsafe deduction by setting mnu = 0.
+                let mnu = 0;
 
                 path.push((p_node.item, mnu));
                 p_ptr = p_node.parent;
@@ -696,21 +695,30 @@ fn mine_up_tree_plus(
             .map(|(&i, _)| i)
             .collect();
             
-        let mut changed = true;
-        while changed {
-            changed = false;
-            let current_unpromising = unpromising.clone();
+        let mut processed_unpromising: HashSet<ItemId> = HashSet::new();
+        
+        loop {
+            let newly_unpromising: Vec<ItemId> = unpromising
+                .difference(&processed_unpromising)
+                .copied()
+                .collect();
+                
+            if newly_unpromising.is_empty() {
+                break;
+            }
+            
+            let new_set: HashSet<ItemId> = newly_unpromising.into_iter().collect();
             
             for (path, _) in &cpb {
                 let mut reduction = 0;
                 for &(u_item, mnu) in path {
-                    if current_unpromising.contains(&u_item) {
+                    if new_set.contains(&u_item) {
                         reduction += mnu;
                     }
                 }
                 if reduction > 0 {
                     for &(v_item, _) in path {
-                        if !current_unpromising.contains(&v_item) {
+                        if !unpromising.contains(&v_item) {
                             if let Some(twu) = local_twu.get_mut(&v_item) {
                                 // Prevent underflow
                                 *twu = twu.saturating_sub(reduction);
@@ -720,15 +728,14 @@ fn mine_up_tree_plus(
                 }
             }
             
-            let new_unpromising: HashSet<ItemId> = local_twu.iter()
+            processed_unpromising.extend(new_set);
+            
+            let updated_unpromising: HashSet<ItemId> = local_twu.iter()
                 .filter(|&(_, &twu)| twu < min_util)
                 .map(|(&i, _)| i)
                 .collect();
                 
-            if new_unpromising.len() > unpromising.len() {
-                unpromising = new_unpromising;
-                changed = true;
-            }
+            unpromising.extend(updated_unpromising);
         }
 
         let saved_ptr = arena.next_node_ptr;

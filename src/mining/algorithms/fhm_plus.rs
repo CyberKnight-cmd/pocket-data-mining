@@ -141,6 +141,10 @@ impl HuimAlgorithm for FhmPlus {
             let (item_x, ul_x, body_x) = filtered[i];
             ctx.progress.set_active_prefix(&[item_x]);
 
+            if ul_x.can_prune(ctx.min_utility) {
+                return;
+            }
+
             if ul_x.is_high_utility(ctx.min_utility) && 1 >= ctx.min_length && 1 <= ctx.max_length {
                 writer.write_hui(&[item_x], ul_x.sum_iutils).unwrap();
                 ctx.progress.huis_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -172,10 +176,8 @@ impl HuimAlgorithm for FhmPlus {
                     ctx.progress.fast_path_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
 
-                if !new_ul.can_prune(ctx.min_utility) {
-                    ext_items.push(item_y);
-                    extensions.push((new_ul, new_body));
-                }
+                ext_items.push(item_y);
+                extensions.push((new_ul, new_body));
             }
 
             if let Some(q) = &prefetch_queue {
@@ -219,6 +221,10 @@ fn fhm_plus_search(
 
     for i in 0..extensions.len() {
         let (ul_px, body_px) = &extensions[i];
+
+        if ul_px.can_prune(ctx.min_utility) {
+            continue;
+        }
 
         // Get body bytes
         let body_px_entries = get_body(ul_px, body_px, &ctx.pool, &ctx.progress)?;
@@ -266,10 +272,8 @@ fn fhm_plus_search(
                 ctx.progress.fast_path_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
-            if !new_ul.can_prune(ctx.min_utility) {
-                next_items.push(item_y);
-                next_extensions.push((new_ul, new_body));
-            }
+            next_items.push(item_y);
+            next_extensions.push((new_ul, new_body));
         }
 
         if !next_extensions.is_empty() {

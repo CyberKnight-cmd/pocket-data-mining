@@ -64,7 +64,11 @@ impl Eucs {
     /// Returns true if the join of any prefix ending in x with y can be pruned.
     pub fn can_prune(&self, x: ItemId, y: ItemId, min_utility: Utility) -> bool {
         let key = if x < y { (x, y) } else { (y, x) };
-        self.inner.get(&key).copied().unwrap_or(0) < min_utility
+        if let Some(&tu) = self.inner.get(&key) {
+            tu < min_utility
+        } else {
+            true // Never co-occurred, prune immediately
+        }
     }
 
     pub fn pair_count(&self) -> usize { self.inner.len() }

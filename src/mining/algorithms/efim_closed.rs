@@ -160,8 +160,32 @@ impl HuimAlgorithm for EfimClosed {
             }
 
             if item_util >= min_u {
-                if proxy.write_hui(&prefix, item_util).is_ok() {
-                    progress.huis_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let mut is_closed = true;
+                if let Some(first_tx_proj) = initial_proj.first() {
+                    let first_orig_tx = &db_ref[first_tx_proj.tx_idx as usize];
+                    
+                    for &candidate_item in &first_orig_tx.items {
+                        if candidate_item == item { continue; }
+                        
+                        let mut in_all = true;
+                        for tx_proj in initial_proj.iter().skip(1) {
+                            let orig_tx = &db_ref[tx_proj.tx_idx as usize];
+                            if !orig_tx.items.contains(&candidate_item) {
+                                in_all = false;
+                                break;
+                            }
+                        }
+                        if in_all {
+                            is_closed = false;
+                            break;
+                        }
+                    }
+                }
+
+                if is_closed {
+                    if proxy.write_hui(&prefix, item_util).is_ok() {
+                        progress.huis_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             }
 
@@ -277,8 +301,32 @@ fn mine_efim_closed(
         new_prefix.push(item);
 
         if item_util >= min_util {
-            if proxy.write_hui(&new_prefix, item_util).is_ok() {
-                progress.huis_found.fetch_add(1, Ordering::Relaxed);
+            let mut is_closed = true;
+            if let Some(first_tx_proj) = new_proj.first() {
+                let first_orig_tx = &db[first_tx_proj.tx_idx as usize];
+                
+                for &candidate_item in &first_orig_tx.items {
+                    if new_prefix.contains(&candidate_item) { continue; }
+                    
+                    let mut in_all = true;
+                    for tx_proj in new_proj.iter().skip(1) {
+                        let orig_tx = &db[tx_proj.tx_idx as usize];
+                        if !orig_tx.items.contains(&candidate_item) {
+                            in_all = false;
+                            break;
+                        }
+                    }
+                    if in_all {
+                        is_closed = false;
+                        break;
+                    }
+                }
+            }
+
+            if is_closed {
+                if proxy.write_hui(&new_prefix, item_util).is_ok() {
+                    progress.huis_found.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
 

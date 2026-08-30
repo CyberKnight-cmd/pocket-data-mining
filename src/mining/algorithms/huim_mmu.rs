@@ -39,6 +39,9 @@ impl HuimAlgorithm for HuimMmu {
 
         ctx.progress.set_stage("Stream Mining: Sliding Windows");
 
+        // Clear the original output file before starting stream output
+        let _ = File::create(&ctx.output_path);
+
         // Simple streaming loop
         while let Some(Ok(tx)) = db_reader.next() {
             window.push_back(tx);

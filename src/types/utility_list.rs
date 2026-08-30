@@ -52,13 +52,13 @@ impl UtilityList {
     /// True if this itemset can be pruned given min_utility.
     #[inline]
     pub fn can_prune(&self, min_utility: Utility) -> bool {
-        self.twu() < min_utility
+        self.len == 0 || self.twu() < min_utility
     }
 
     /// True if this itemset is a high-utility itemset.
     #[inline]
     pub fn is_high_utility(&self, min_utility: Utility) -> bool {
-        self.sum_iutils >= min_utility
+        self.len > 0 && self.sum_iutils >= min_utility
     }
 }
 

@@ -263,7 +263,7 @@ fn dfs(
         }
         progress.fast_path_reads.fetch_add(reads, Ordering::Relaxed);
         
-        if exact >= min_util {
+        if !next_tids.is_empty() && exact >= min_util {
             prefix.push(orig[ext_idx]);
             if proxy.write_hui(prefix, exact).is_ok() {
                 progress.huis_found.fetch_add(1, Ordering::Relaxed);
@@ -271,7 +271,7 @@ fn dfs(
             prefix.pop();
         }
         
-        if twu >= min_util {
+        if !next_tids.is_empty() && twu >= min_util {
             valid_exts.push(ext_idx);
             
             let bytes = serialize_nodes(&next_tids);

@@ -179,6 +179,10 @@ impl HuimAlgorithm for Rept {
             
             let mut current_thresh = if let Some(state) = &rept_state { state.get() } else { ctx.min_utility };
 
+            if ul_x.can_prune(current_thresh) {
+                return;
+            }
+
             if ul_x.is_high_utility(current_thresh) {
                 if let Some(state) = &rept_state {
                     current_thresh = state.update(ul_x.sum_iutils, vec![item_x]);
@@ -210,10 +214,8 @@ impl HuimAlgorithm for Rept {
                     ctx.progress.fast_path_writes.fetch_add(1, Ordering::Relaxed);
                 }
 
-                if !new_ul.can_prune(current_thresh) {
-                    ext_items.push(item_y);
-                    extensions.push((new_ul, new_body));
-                }
+                ext_items.push(item_y);
+                extensions.push((new_ul, new_body));
             }
 
             if let Some(q) = &prefetch_queue {
@@ -280,7 +282,7 @@ fn rept_search(
     for i in 0..extensions.len() {
         let (ul_px, body_px) = &extensions[i];
         let mut current_thresh = if let Some(state) = &rept_state { state.get() } else { ctx.min_utility };
-
+        
         if ul_px.can_prune(current_thresh) {
             continue;
         }
@@ -326,9 +328,7 @@ fn rept_search(
                 ctx.progress.fast_path_writes.fetch_add(1, Ordering::Relaxed);
             }
 
-            if !new_ul.can_prune(current_thresh) {
-                next_extensions.push((new_ul, new_body));
-            }
+            next_extensions.push((new_ul, new_body));
         }
 
         if !next_extensions.is_empty() {
