@@ -15,9 +15,9 @@ use std::fs::File;
 use std::io::BufReader;
 use crate::preprocessing::{db_reader::DbReader, twu_filter::TwuFilter};
 
-pub struct Efim {}
+pub struct HauiMiner {}
 
-impl Efim {
+impl HauiMiner {
     pub fn new() -> Self { Self {} }
 }
 
@@ -40,13 +40,13 @@ pub struct ProjTx {
 const PROJ_ENTRY_SIZE: usize = std::mem::size_of::<ProjTx>();
 
 /// A projection that is either live in RAM or serialized to disk.
-enum EfimProj {
+enum HauiMinerProj {
     InMemory(Vec<ProjTx>),
     OnDisk(PageId, usize),
 }
 
-impl EfimProj {
-    fn spill(proj: Vec<ProjTx>, pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>, store: &dyn ChunkStore) -> io::Result<EfimProj> {
+impl HauiMinerProj {
+    fn spill(proj: Vec<ProjTx>, pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>, store: &dyn ChunkStore) -> io::Result<HauiMinerProj> {
         let count = proj.len();
         // Serialize manually — each ProjTx field individually to avoid packed-struct issues
         let mut bytes = Vec::with_capacity(count * 24);
@@ -61,7 +61,7 @@ impl EfimProj {
         pool.insert_page(page_id, bytes)?;
         // Memory is freed conceptually here, but `spill` internally handles tracking if necessary, 
         // or we just drop proj. The caller handles `guard.free()`.
-        Ok(EfimProj::OnDisk(page_id, count))
+        Ok(HauiMinerProj::OnDisk(page_id, count))
     }
 
     fn load(page_id: PageId, count: usize, pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>) -> io::Result<Vec<ProjTx>> {
@@ -82,19 +82,19 @@ impl EfimProj {
     }
 }
 
-impl HuimAlgorithm for Efim {
-    fn name(&self) -> &'static str { "EFIM" }
+impl HuimAlgorithm for HauiMiner {
+    fn name(&self) -> &'static str { "HauiMiner" }
 
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
-        let dataset_path = source.expect_file("EFIM");
+        let dataset_path = source.expect_file("HauiMiner");
 
-        ctx.progress.set_stage("EFIM: Pass 1 (TWU)");
+        ctx.progress.set_stage("HauiMiner: Pass 1 (TWU)");
         let file = File::open(&dataset_path)?;
         let db_reader = DbReader::new(BufReader::new(file));
         let filter = TwuFilter::new(ctx.min_utility);
         let twu_filter_result = filter.compute(db_reader.filter_map(Result::ok));
 
-        ctx.progress.set_stage("EFIM: Pass 2 (Load DB)");
+        ctx.progress.set_stage("HauiMiner: Pass 2 (Load DB)");
         let file2 = File::open(&dataset_path)?;
         let db_reader2 = DbReader::new(BufReader::new(file2));
 
@@ -129,7 +129,7 @@ impl HuimAlgorithm for Efim {
         let mut primary_items: Vec<ItemId> = twu_filter_result.twu.keys().copied().collect();
         primary_items.sort_by_key(|&item| twu_filter_result.twu.get(&item).copied().unwrap_or(0));
 
-        ctx.progress.set_stage("EFIM: Mining");
+        ctx.progress.set_stage("HauiMiner: Mining");
 
         let tasks = primary_items;
         let db_ref = Arc::clone(&original_db);
@@ -168,15 +168,15 @@ impl HuimAlgorithm for Efim {
             let proj_bytes = initial_proj.len() * PROJ_ENTRY_SIZE;
 
             let proj = if !guard_ref.try_alloc(proj_bytes) {
-                match EfimProj::spill(initial_proj, &pool_ref, store_ref.as_ref()) {
+                match HauiMinerProj::spill(initial_proj, &pool_ref, store_ref.as_ref()) {
                     Ok(p) => p,
                     Err(_) => return,
                 }
             } else {
-                EfimProj::InMemory(initial_proj)
+                HauiMinerProj::InMemory(initial_proj)
             };
 
-            mine_efim(
+            mine_haui_miner(
                 &db_ref, &prefix, proj, min_u,
                 &mut proxy, &progress,
                 &guard_ref, &pool_ref, store_ref.as_ref(),
@@ -192,10 +192,10 @@ impl HuimAlgorithm for Efim {
     }
 }
 
-fn mine_efim(
+fn mine_haui_miner(
     db: &[OriginalTx],
     prefix: &[ItemId],
-    proj: EfimProj,
+    proj: HauiMinerProj,
     min_util: Utility,
     proxy: &mut WriterProxy,
     progress: &MiningProgress,
@@ -209,9 +209,9 @@ fn mine_efim(
     // Resolve projection — load from disk if needed
     let in_mem_loaded;
     let proj_slice: &[ProjTx] = match proj {
-        EfimProj::InMemory(ref v) => v.as_slice(),
-        EfimProj::OnDisk(page_id, count) => {
-            match EfimProj::load(page_id, count, pool) {
+        HauiMinerProj::InMemory(ref v) => v.as_slice(),
+        HauiMinerProj::OnDisk(page_id, count) => {
+            match HauiMinerProj::load(page_id, count, pool) {
                 Ok(v) => { in_mem_loaded = v; in_mem_loaded.as_slice() }
                 Err(_) => return,
             }
@@ -286,15 +286,15 @@ fn mine_efim(
 
         let next_proj = if !guard.try_alloc(new_bytes) {
             // Over budget — cancel the add and spill to disk
-            match EfimProj::spill(new_proj, pool, store) {
+            match HauiMinerProj::spill(new_proj, pool, store) {
                 Ok(p) => p,
                 Err(_) => continue,
             }
         } else {
-            EfimProj::InMemory(new_proj)
+            HauiMinerProj::InMemory(new_proj)
         };
 
-        mine_efim(
+        mine_haui_miner(
             db, &new_prefix, next_proj, min_util,
             proxy, progress, guard, pool, store,
         );

@@ -61,6 +61,7 @@ pub fn join_utility_lists(
     prefix_body: &[ULEntry],  // empty slice if prefix is the empty set
     px_body: &[ULEntry],
     py_body: &[ULEntry],
+    pool: &std::sync::Arc<crate::buffer_pool::pool::BufferPool>,
     store: &dyn ChunkStore,
 ) -> io::Result<(UtilityList, UlBody)> {
     let mut result: Vec<ULEntry> = Vec::new();
@@ -123,7 +124,7 @@ pub fn join_utility_lists(
     // Decide: materialize on disk or keep in RAM
     let body = if body_bytes.len() >= MATERIALIZE_THRESHOLD_BYTES {
         let page_id = store.next_page_id();
-        store.write_page(page_id, &body_bytes, PageFlags::UL_BODY)?;
+        pool.insert_page(page_id, body_bytes)?;
         UlBody::OnDisk(page_id)
     } else {
         UlBody::InMemory(result)
@@ -180,11 +181,12 @@ mod tests {
         // Join gives tids 1,3
         let px = vec![entry(1, 30, 70), entry(2, 20, 50), entry(3, 40, 10)];
         let py = vec![entry(1, 10, 0),  entry(3, 50, 0),  entry(4, 60, 0)];
-        let store = crate::storage::FileChunkStore::new(
+        let store = std::sync::Arc::new(crate::storage::FileChunkStore::new(
             tempfile::tempdir().unwrap().into_path(), false
-        ).unwrap();
+        ).unwrap());
+        let pool = crate::buffer_pool::pool::BufferPool::new_arc(1024 * 1024, store.clone(), Box::new(crate::buffer_pool::eviction::LruPolicy::new()));
         let (ul, body) = join_utility_lists(
-            smallvec![1u32, 2u32], &[], &px, &py, &store
+            smallvec![1u32, 2u32], &[], &px, &py, &pool, store.as_ref()
         ).unwrap();
         assert_eq!(ul.len, 2); // tids 1 and 3
         // tid1: iutils = 30+10=40, rutils=0
@@ -198,10 +200,11 @@ mod tests {
     fn join_empty_intersection() {
         let px = vec![entry(1, 10, 5)];
         let py = vec![entry(2, 20, 5)];
-        let store = crate::storage::FileChunkStore::new(
+        let store = std::sync::Arc::new(crate::storage::FileChunkStore::new(
             tempfile::tempdir().unwrap().into_path(), false
-        ).unwrap();
-        let (ul, _) = join_utility_lists(smallvec![1u32, 2u32], &[], &px, &py, &store).unwrap();
+        ).unwrap());
+        let pool = crate::buffer_pool::pool::BufferPool::new_arc(1024 * 1024, store.clone(), Box::new(crate::buffer_pool::eviction::LruPolicy::new()));
+        let (ul, _) = join_utility_lists(smallvec![1u32, 2u32], &[], &px, &py, &pool, store.as_ref()).unwrap();
         assert_eq!(ul.len, 0);
         assert_eq!(ul.sum_iutils, 0);
     }

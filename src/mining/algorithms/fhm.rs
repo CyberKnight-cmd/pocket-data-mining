@@ -71,7 +71,9 @@ impl HuimAlgorithm for Fhm {
         for tx in db_reader2.filter_map(Result::ok) {
             if let Some(filtered_tx) = twu_filter_result.apply(&tx) {
                 let items: Vec<ItemId> = filtered_tx.items.iter().map(|e| e.item).collect();
-                eucs.add_transaction(&items, filtered_tx.transaction_utility);
+                if !eucs.add_transaction(&items, filtered_tx.transaction_utility, &ctx.guard) {
+                    ctx.progress.set_stage("Pass 2: EUCS (OOM, partial pruning)");
+                }
 
                 let total_utility: Utility = filtered_tx.items.iter().map(|e| e.utility).sum();
                 let mut running_remaining: Utility = total_utility;
@@ -126,7 +128,10 @@ impl HuimAlgorithm for Fhm {
 
         // Sort by ascending TWU (FHM ordering)
         // Note: twu_filter_result.twu has the true TWU, we use that for sorting instead of ul.twu()
-        filtered.sort_by_key(|(item, _, _)| twu_filter_result.twu.get(item).copied().unwrap_or(0));
+        filtered.sort_by_key(|&(item, _, _)| {
+            let twu = twu_filter_result.twu.get(&item).copied().unwrap_or(0);
+            (twu, item)
+        });
 
         // For each 1-itemset, check if it's a HUI and recurse
                 // --- DYNAMIC MEMORY AUTO-TUNING & OS SAFETY NET ---
@@ -139,6 +144,10 @@ impl HuimAlgorithm for Fhm {
         ctx.execute_tasks(task_indices, |i, writer| {
             let (item_x, ul_x, body_x) = filtered[i];
             ctx.progress.set_active_prefix(&[item_x]);
+
+            if ul_x.can_prune(ctx.min_utility) {
+                return;
+            }
 
             if ul_x.is_high_utility(ctx.min_utility) {
                 writer.write_hui(&[item_x], ul_x.sum_iutils).unwrap();
@@ -161,17 +170,14 @@ impl HuimAlgorithm for Fhm {
                     &[],
                     body_x,
                     body_y,
-                    ctx.store.as_ref(),
-                ).unwrap();
+                    &ctx.pool, ctx.store.as_ref()).unwrap();
 
                 if let UlBody::InMemory(_) = &new_body {
                     ctx.progress.fast_path_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
 
-                if !new_ul.can_prune(ctx.min_utility) {
-                    ext_items.push(item_y);
-                    extensions.push((new_ul, new_body));
-                }
+                ext_items.push(item_y);
+                extensions.push((new_ul, new_body));
             }
 
             if let Some(q) = &prefetch_queue {
@@ -216,6 +222,10 @@ fn fhm_search(
     for i in 0..extensions.len() {
         let (ul_px, body_px) = &extensions[i];
 
+        if ul_px.can_prune(ctx.min_utility) {
+            continue;
+        }
+
         // Get body bytes
         let body_px_entries = get_body(ul_px, body_px, &ctx.pool, &ctx.progress)?;
 
@@ -252,17 +262,14 @@ fn fhm_search(
                 prefix_body,
                 &body_px_entries,
                 &body_py_entries,
-                ctx.store.as_ref(),
-            )?;
+                &ctx.pool, ctx.store.as_ref())?;
 
             if let UlBody::InMemory(_) = &new_body {
                 ctx.progress.fast_path_writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
-            if !new_ul.can_prune(ctx.min_utility) {
-                next_items.push(item_y);
-                next_extensions.push((new_ul, new_body));
-            }
+            next_items.push(item_y);
+            next_extensions.push((new_ul, new_body));
         }
 
         if !next_extensions.is_empty() {
@@ -298,3 +305,4 @@ fn get_body(
         }
     }
 }
+

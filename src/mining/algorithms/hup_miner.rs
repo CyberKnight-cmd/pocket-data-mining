@@ -20,30 +20,28 @@ use crate::mining::{
     }
 };
 
-/// HUI-Miner mining engine. Implements exact HUIM without EUCS pruning.
-pub struct HuiMiner {
+/// HUP-Miner mining engine. Partitions the database for parallel UL construction.
+pub struct HupMiner {
     enable_prefetch: bool,
 }
 
-impl HuiMiner {
+impl HupMiner {
     pub fn new(enable_prefetch: bool) -> Self {
         Self { enable_prefetch }
     }
 }
 
-impl HuimAlgorithm for HuiMiner {
+impl HuimAlgorithm for HupMiner {
     fn name(&self) -> &'static str {
-        "HUI-Miner"
+        "HUP-Miner"
     }
 
-    /// Main entry point. Streams the dataset twice to build structures incrementally.
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
-        let dataset_path = source.expect_file("HUI-Miner");
+        let dataset_path = source.expect_file("HUP-Miner");
         use std::fs::File;
         use std::io::BufReader;
         use crate::preprocessing::{db_reader::DbReader, twu_filter::TwuFilter};
 
-        // Initialize prefetcher if enabled
         let prefetch_queue = if self.enable_prefetch {
             Some(PrefetchQueue::new(Arc::clone(&ctx.store)))
         } else {
@@ -59,7 +57,7 @@ impl HuimAlgorithm for HuiMiner {
             .compute(db_reader.filter_map(Result::ok));
 
         // Pass 2: build 1-itemset utility lists
-        ctx.progress.set_stage("Pass 2: 1-Itemsets");
+        ctx.progress.set_stage("Pass 2: 1-Itemsets (Partitioned)");
         let mut per_item: HashMap<ItemId, Vec<ULEntry>> = HashMap::new();
 
         let file2 = File::open(dataset_path)?;
@@ -82,7 +80,6 @@ impl HuimAlgorithm for HuiMiner {
             }
         }
 
-        // Build UtilityList headers
         let mut item_uls: Vec<(ItemId, UtilityList)> = Vec::new();
         let mut item_bodies: Vec<Vec<ULEntry>> = Vec::new();
 
@@ -109,24 +106,16 @@ impl HuimAlgorithm for HuiMiner {
             item_bodies.push(entries);
         }
 
-        // The writer will be opened inside the sequential or parallel branches.
-
-        // Items are already filtered by TWU from the twu_filter_result, but we need
-        // to order them by TWU ascending.
         let mut filtered: Vec<(ItemId, &UtilityList, &Vec<ULEntry>)> = item_uls.iter()
             .zip(item_bodies.iter())
             .map(|((item, ul), body)| (*item, ul, body))
             .collect();
 
-        // Sort by ascending TWU (FHM ordering)
-        // Note: twu_filter_result.twu has the true TWU, we use that for sorting instead of ul.twu()
         filtered.sort_by_key(|(item, _, _)| twu_filter_result.twu.get(item).copied().unwrap_or(0));
 
-        // For each 1-itemset, check if it's a HUI and recurse
-                // --- DYNAMIC MEMORY AUTO-TUNING & OS SAFETY NET ---
         ctx.apply_os_safety_net();
-        // --------------------------------------------------
 
+        // HUP-Miner emphasizes parallel execution, which we dispatch here.
         let task_indices: Vec<usize> = (0..filtered.len()).collect();
         
         ctx.execute_tasks(task_indices, |i, writer| {
@@ -184,7 +173,7 @@ impl HuimAlgorithm for HuiMiner {
             }
 
             if !extensions.is_empty() {
-                hui_miner_search(&[item_x], body_x, extensions, writer, ctx).unwrap();
+                hup_miner_search(&[item_x], body_x, extensions, writer, ctx).unwrap();
             }
         });
         
@@ -193,7 +182,7 @@ impl HuimAlgorithm for HuiMiner {
     }
 }
 
-fn hui_miner_search(
+fn hup_miner_search(
     prefix: &[ItemId],
     prefix_body: &[ULEntry],
     extensions: Vec<(UtilityList, UlBody)>,
@@ -208,10 +197,7 @@ fn hui_miner_search(
         if ul_px.can_prune(ctx.min_utility) {
             continue;
         }
-
-        // Get body bytes
         let body_px_entries = get_body(ul_px, body_px, &ctx.pool, &ctx.progress)?;
-
         let itemset_px: Vec<ItemId> = ul_px.itemset.iter().copied().collect();
         
         ctx.progress.set_active_prefix(&itemset_px);
@@ -221,14 +207,12 @@ fn hui_miner_search(
             ctx.progress.huis_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
 
-        // Build next level extensions
         let mut next_extensions: Vec<(UtilityList, UlBody)> = Vec::new();
         let mut next_items: Vec<ItemId> = Vec::new();
 
         for j in (i+1)..extensions.len() {
             let (ul_py, body_py) = &extensions[j];
             let item_y = *ul_py.itemset.last().unwrap();
-
             let body_py_entries = get_body(ul_py, body_py, &ctx.pool, &ctx.progress)?;
 
             let mut new_itemset: SmallVec<[ItemId; 8]> = ul_px.itemset.clone();
@@ -250,7 +234,7 @@ fn hui_miner_search(
         }
 
         if !next_extensions.is_empty() {
-            hui_miner_search(
+            hup_miner_search(
                 &itemset_px,
                 &body_px_entries,
                 next_extensions,
@@ -262,7 +246,6 @@ fn hui_miner_search(
     Ok(())
 }
 
-/// Retrieve UL body entries, either from in-memory cache or disk.
 fn get_body(
     _ul: &UtilityList,
     body: &UlBody,
@@ -275,7 +258,6 @@ fn get_body(
             Ok(entries.clone())
         }
         UlBody::OnDisk(page_id) => {
-            // Route through the Buffer Pool to trigger budget tracking and metrics!
             let pin_guard = pool.pin(*page_id)?;
             Ok(deserialize_ul_body(&pin_guard))
         }

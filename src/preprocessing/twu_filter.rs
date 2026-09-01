@@ -40,8 +40,11 @@ impl TwuFilterResult {
 
         if kept.is_empty() { return None; }
 
-        // Sort by ascending TWU (standard FHM/HUI-Miner ordering)
-        kept.sort_by_key(|e| self.twu.get(&e.item).copied().unwrap_or(0));
+        // Sort by ascending TWU (standard FHM/HUI-Miner ordering). Tie-break by item id.
+        kept.sort_by_key(|e| {
+            let t = self.twu.get(&e.item).copied().unwrap_or(0);
+            (t, e.item)
+        });
 
         Some(FilteredTransaction {
             tid: tx.tid,
@@ -80,9 +83,9 @@ impl TwuFilter {
         // Filter items below threshold
         twu.retain(|_, v| *v >= self.min_utility);
 
-        // Sort by ascending TWU for FHM ordering
+        // Sort by ascending TWU for FHM ordering. Tie-break by item id.
         let mut ordered_items: Vec<(ItemId, Utility)> = twu.iter().map(|(&k, &v)| (k, v)).collect();
-        ordered_items.sort_by_key(|(_, twu)| *twu);
+        ordered_items.sort_by_key(|&(item, twu)| (twu, item));
 
         TwuFilterResult { twu, ordered_items, min_utility: self.min_utility }
     }

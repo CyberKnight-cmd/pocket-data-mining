@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use crate::mining::{core::HuimAlgorithm, core::MiningContext, core::DataSource};
 use crate::preprocessing::db_reader::DbReader;
-use crate::types::{ItemId, Utility};
+use crate::types::{ItemId, Utility, PageId};
+use crate::buffer_pool::pool::BufferPool;
 
 pub struct TwoPhase;
 
@@ -13,14 +15,69 @@ impl TwoPhase {
     pub fn new() -> Self { Self }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
+#[repr(C, packed)]
 struct TxEntry {
     tx_idx: u32,
     util: i64,
 }
 
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+struct DfsNode {
+    tx_idx: u32,
+    util_prefix: i64,
+}
+
+fn serialize_nodes(nodes: &[DfsNode]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(nodes.len() * 12);
+    for n in nodes {
+        buf.extend_from_slice(&n.tx_idx.to_le_bytes());
+        buf.extend_from_slice(&n.util_prefix.to_le_bytes());
+    }
+    buf
+}
+
+fn deserialize_nodes(bytes: &[u8]) -> Vec<DfsNode> {
+    let len = bytes.len() / 12;
+    let mut nodes = Vec::with_capacity(len);
+    for chunk in bytes.chunks_exact(12) {
+        nodes.push(DfsNode {
+            tx_idx: u32::from_le_bytes(chunk[0..4].try_into().unwrap()),
+            util_prefix: i64::from_le_bytes(chunk[4..12].try_into().unwrap()),
+        });
+    }
+    nodes
+}
+
+fn serialize_tx_entries(entries: &[TxEntry]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(entries.len() * 12);
+    for e in entries {
+        buf.extend_from_slice(&e.tx_idx.to_le_bytes());
+        buf.extend_from_slice(&e.util.to_le_bytes());
+    }
+    buf
+}
+
+fn deserialize_tx_entries(bytes: &[u8]) -> Vec<TxEntry> {
+    let len = bytes.len() / 12;
+    let mut entries = Vec::with_capacity(len);
+    for chunk in bytes.chunks_exact(12) {
+        entries.push(TxEntry {
+            tx_idx: u32::from_le_bytes(chunk[0..4].try_into().unwrap()),
+            util: i64::from_le_bytes(chunk[4..12].try_into().unwrap()),
+        });
+    }
+    entries
+}
+
+enum NodeList {
+    InMemory(Vec<DfsNode>),
+    OnDisk(PageId, usize),
+}
+
 impl HuimAlgorithm for TwoPhase {
-    fn name(&self) -> &'static str { "Two-Phase (Vertical)" }
+    fn name(&self) -> &'static str { "Two-Phase (Vertical BufferPool)" }
 
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
         let file_path = source.expect_file("Two-Phase").to_path_buf();
@@ -61,9 +118,6 @@ impl HuimAlgorithm for TwoPhase {
         let reader = DbReader::new(BufReader::new(File::open(&file_path)?));
         let mut tx_idx = 0u32;
         
-        // Track Vertical DB RAM footprint
-        let mut vert_db_bytes = 0usize;
-
         for tx_res in reader {
             let tx = tx_res?;
             tx_twus.push(tx.transaction_utility);
@@ -72,7 +126,6 @@ impl HuimAlgorithm for TwoPhase {
             for item_entry in &tx.items {
                 if let Some(&m_id) = orig_to_mapped.get(&item_entry.item) {
                     vert_db[m_id].push(TxEntry { tx_idx, util: item_entry.utility });
-                    vert_db_bytes += 12; // 4 byte tx_idx + 8 byte util
                     local_writes += 1;
                 }
             }
@@ -80,59 +133,77 @@ impl HuimAlgorithm for TwoPhase {
             tx_idx += 1;
         }
         
-        vert_db_bytes += tx_twus.len() * 8; // add tx_twus array size
-        if !ctx.guard.try_alloc(vert_db_bytes) {
-            println!("\n[MemoryGuard] Vertical DB size ({} MB) exceeds budget!", vert_db_bytes / 1024 / 1024);
+        let mut vert_db_pages: Vec<PageId> = vec![0; num_valid_items];
+
+        for i in 0..num_valid_items {
+            let entries = std::mem::take(&mut vert_db[i]);
+            let bytes = serialize_tx_entries(&entries);
+            let page_id = ctx.store.next_page_id();
+            ctx.pool.insert_page(page_id, bytes)?;
+            vert_db_pages[i] = page_id;
+        }
+        
+        // now vert_db memory is freed, memory footprint is mostly tx_twus
+        let tx_twus_bytes = tx_twus.len() * 8;
+        if !ctx.guard.try_alloc(tx_twus_bytes) {
+            println!("\n[MemoryGuard] tx_twus size ({} MB) exceeds budget!", tx_twus_bytes / 1024 / 1024);
             return Ok(0);
         }
 
-        ctx.progress.set_stage("Phase 3: Vertical DFS Execution (Predictable Memory)");
+        ctx.progress.set_stage("Phase 3: Vertical DFS Execution (BufferPool-backed)");
         
         let tasks: Vec<usize> = (0..num_valid_items).collect();
         let min_util = ctx.min_utility;
         
-        ctx.execute_tasks(tasks, |i, proxy| {
+        // Clone Arc's for closure
+        let pool_ref = Arc::clone(&ctx.pool);
+        let store_ref = Arc::clone(&ctx.store);
+        let progress = Arc::clone(&ctx.progress);
+        
+        ctx.execute_tasks(tasks, move |i, proxy| {
             let mut prefix = vec![mapped_to_orig[i]];
             
             // Map the vertical db row for item `i` into our DFS nodes
-            let initial_tids: Vec<DfsNode> = vert_db[i].iter().map(|e| DfsNode {
-                tx_idx: e.tx_idx,
-                util_prefix: e.util,
-            }).collect();
+            let page_id = vert_db_pages[i];
+            let initial_tids = if let Ok(guard) = pool_ref.pin(page_id) {
+                let entries = deserialize_tx_entries(&guard);
+                entries.into_iter().map(|e| DfsNode {
+                    tx_idx: e.tx_idx,
+                    util_prefix: e.util,
+                }).collect::<Vec<DfsNode>>()
+            } else {
+                Vec::new()
+            };
             
             // Output 1-itemset if it's a HUI
             let exact_1 = initial_tids.iter().map(|n| n.util_prefix).sum::<i64>();
             if exact_1 >= min_util {
                 if proxy.write_hui(&prefix, exact_1).is_ok() {
-                    ctx.progress.huis_found.fetch_add(1, Ordering::Relaxed);
+                    progress.huis_found.fetch_add(1, Ordering::Relaxed);
                 }
             }
             
             let extensions: Vec<usize> = (i+1..num_valid_items).collect();
             
-            dfs(
+            let _ = dfs(
                 &mut prefix,
                 &extensions,
                 &initial_tids,
-                &vert_db,
+                &vert_db_pages,
                 &tx_twus,
                 min_util,
-                &ctx.progress,
+                &progress,
                 proxy,
-                &mapped_to_orig
+                &mapped_to_orig,
+                &pool_ref,
+                store_ref.as_ref()
             );
         });
 
-        ctx.guard.free(vert_db_bytes);
+        ctx.guard.free(tx_twus_bytes);
         ctx.progress.set_stage("Mining Complete");
         Ok(ctx.progress.huis_found.load(Ordering::Relaxed))
     }
-}
-
-#[derive(Clone)]
-struct DfsNode {
-    tx_idx: u32,
-    util_prefix: i64,
 }
 
 /// Recursive Vertical DFS using Fast TID-List Intersection (Eclat style)
@@ -140,20 +211,25 @@ fn dfs(
     prefix: &mut Vec<ItemId>,
     extensions: &[usize],
     tids: &[DfsNode],
-    vert_db: &[Vec<TxEntry>],
+    vert_db_pages: &[PageId],
     tx_twus: &[i64],
     min_util: i64,
     progress: &std::sync::Arc<crate::progress::MiningProgress>,
     proxy: &mut crate::mining::core::context::WriterProxy,
     orig: &[ItemId],
-) {
+    pool: &Arc<BufferPool>,
+    store: &dyn crate::storage::chunk_store::ChunkStore,
+) -> io::Result<()> {
     progress.current_depth.store(prefix.len() + 1, Ordering::Relaxed);
     
     let mut valid_exts = Vec::new();
     let mut next_tids_list = Vec::new();
     
     for &ext_idx in extensions {
-        let ext_list = &vert_db[ext_idx];
+        let ext_page = vert_db_pages[ext_idx];
+        
+        let ext_guard = pool.pin(ext_page)?;
+        let ext_list = deserialize_tx_entries(&ext_guard);
         
         let mut next_tids = Vec::with_capacity(std::cmp::min(tids.len(), ext_list.len()));
         let mut twu = 0;
@@ -187,7 +263,7 @@ fn dfs(
         }
         progress.fast_path_reads.fetch_add(reads, Ordering::Relaxed);
         
-        if exact >= min_util {
+        if !next_tids.is_empty() && exact >= min_util {
             prefix.push(orig[ext_idx]);
             if proxy.write_hui(prefix, exact).is_ok() {
                 progress.huis_found.fetch_add(1, Ordering::Relaxed);
@@ -195,26 +271,47 @@ fn dfs(
             prefix.pop();
         }
         
-        if twu >= min_util {
+        if !next_tids.is_empty() && twu >= min_util {
             valid_exts.push(ext_idx);
-            next_tids_list.push(next_tids);
+            
+            let bytes = serialize_nodes(&next_tids);
+            if bytes.len() >= 4096 {
+                let page_id = store.next_page_id();
+                pool.insert_page(page_id, bytes)?;
+                next_tids_list.push(NodeList::OnDisk(page_id, next_tids.len()));
+            } else {
+                next_tids_list.push(NodeList::InMemory(next_tids));
+            }
         }
     }
     
     // Recurse down valid paths
     for (idx, &ext_idx) in valid_exts.iter().enumerate() {
         prefix.push(orig[ext_idx]);
+        
+        let next_tids_resolved = match &next_tids_list[idx] {
+            NodeList::InMemory(v) => v.clone(),
+            NodeList::OnDisk(page_id, _len) => {
+                let guard = pool.pin(*page_id)?;
+                deserialize_nodes(&guard)
+            }
+        };
+        
         dfs(
             prefix,
             &valid_exts[idx+1..],
-            &next_tids_list[idx],
-            vert_db,
+            &next_tids_resolved,
+            vert_db_pages,
             tx_twus,
             min_util,
             progress,
             proxy,
-            orig
-        );
+            orig,
+            pool,
+            store
+        )?;
         prefix.pop();
     }
+    
+    Ok(())
 }

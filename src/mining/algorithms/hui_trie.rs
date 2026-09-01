@@ -12,7 +12,7 @@ use crate::storage::chunk_store::ChunkStore;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct IhupNode {
+struct TrieNode {
     item: ItemId,
     twu: Utility,
     parent: u32,
@@ -34,7 +34,7 @@ struct NodeArena {
 impl NodeArena {
     fn new(pool: Arc<BufferPool>, store: Arc<dyn ChunkStore + Send + Sync>, progress: Arc<MiningProgress>) -> Self {
         let page_size = 65536; // 64KB pages
-        let nodes_per_page = page_size / std::mem::size_of::<IhupNode>();
+        let nodes_per_page = page_size / std::mem::size_of::<TrieNode>();
         Self {
             pool,
             store,
@@ -61,10 +61,10 @@ impl NodeArena {
         let guard = self.pool.pin_mut(page_id)?;
         self.progress.fast_path_reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bytes: &mut [u8] = unsafe { &mut *(guard.as_ptr() as *mut [u8; 65536]) };
-        let nodes_ptr = bytes.as_mut_ptr() as *mut IhupNode;
+        let nodes_ptr = bytes.as_mut_ptr() as *mut TrieNode;
         let nodes = unsafe { std::slice::from_raw_parts_mut(nodes_ptr, self.nodes_per_page) };
 
-        nodes[offset] = IhupNode {
+        nodes[offset] = TrieNode {
             item,
             twu,
             parent,
@@ -77,39 +77,39 @@ impl NodeArena {
         Ok(ptr)
     }
 
-    fn get_node(&self, ptr: u32) -> io::Result<IhupNode> {
+    fn get_node(&self, ptr: u32) -> io::Result<TrieNode> {
         let page_index = (ptr as usize) / self.nodes_per_page;
         let offset = (ptr as usize) % self.nodes_per_page;
         let page_id = self.pages[page_index];
         let guard = self.pool.pin(page_id)?;
         self.progress.fast_path_reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bytes: &[u8] = unsafe { &*(guard.as_ptr() as *const [u8; 65536]) };
-        let nodes_ptr = bytes.as_ptr() as *const IhupNode;
+        let nodes_ptr = bytes.as_ptr() as *const TrieNode;
         let nodes = unsafe { std::slice::from_raw_parts(nodes_ptr, self.nodes_per_page) };
         Ok(nodes[offset])
     }
 
-    fn set_node(&self, ptr: u32, node: IhupNode) -> io::Result<()> {
+    fn set_node(&self, ptr: u32, node: TrieNode) -> io::Result<()> {
         let page_index = (ptr as usize) / self.nodes_per_page;
         let offset = (ptr as usize) % self.nodes_per_page;
         let page_id = self.pages[page_index];
         let guard = self.pool.pin_mut(page_id)?;
         self.progress.fast_path_reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bytes: &mut [u8] = unsafe { &mut *(guard.as_ptr() as *mut [u8; 65536]) };
-        let nodes_ptr = bytes.as_mut_ptr() as *mut IhupNode;
+        let nodes_ptr = bytes.as_mut_ptr() as *mut TrieNode;
         let nodes = unsafe { std::slice::from_raw_parts_mut(nodes_ptr, self.nodes_per_page) };
         nodes[offset] = node;
         Ok(())
     }
 }
 
-struct IhupTree {
+struct HuiTrieStruct {
     root: u32,
     header_table: HashMap<ItemId, u32>,
     items_order: Vec<ItemId>,
 }
 
-impl IhupTree {
+impl HuiTrieStruct {
     fn new(arena: &mut NodeArena, items_order: Vec<ItemId>) -> io::Result<Self> {
         let mut header_table = HashMap::new();
         for &item in &items_order {
@@ -165,10 +165,12 @@ impl IhupTree {
     }
 }
 
-fn mine_tree(tree: &IhupTree, arena: &mut NodeArena, prefix: &[ItemId], min_utility: Utility, candidates: &mut Vec<Vec<ItemId>>, guard: &MemoryGuard) -> io::Result<()> {
+fn mine_tree(tree: &HuiTrieStruct, arena: &mut NodeArena, prefix: &[ItemId], min_utility: Utility, candidates: &mut Vec<Vec<ItemId>>, ctx: &MiningContext) -> io::Result<()> {
+    ctx.progress.set_active_prefix(prefix);
     for &item in tree.items_order.iter().rev() {
         let mut curr = tree.header_table.get(&item).copied().unwrap_or(u32::MAX);
         let mut path_twu_sum = 0;
+        let mut reads = 0;
         
         let mut cpb = Vec::new();
         while curr != u32::MAX {
@@ -178,6 +180,7 @@ fn mine_tree(tree: &IhupTree, arena: &mut NodeArena, prefix: &[ItemId], min_util
             let mut path = Vec::new();
             let mut p = node.parent;
             while p != tree.root && p != u32::MAX {
+                reads += 1;
                 let p_node = arena.get_node(p)?;
                 path.push(p_node.item);
                 p = p_node.parent;
@@ -188,14 +191,12 @@ fn mine_tree(tree: &IhupTree, arena: &mut NodeArena, prefix: &[ItemId], min_util
             }
             curr = node.node_link;
         }
+        ctx.progress.fast_path_reads.fetch_add(reads, std::sync::atomic::Ordering::Relaxed);
         
         if path_twu_sum < min_utility {
             continue;
         }
         
-        let cand_bytes = (prefix.len() + 1) * 8;
-        guard.force_alloc(cand_bytes); // Assuming force_alloc instead of try_alloc for simplicity, wait, let's keep it similar
-
         let mut new_prefix = prefix.to_vec();
         new_prefix.push(item);
         candidates.push(new_prefix.clone());
@@ -219,7 +220,7 @@ fn mine_tree(tree: &IhupTree, arena: &mut NodeArena, prefix: &[ItemId], min_util
         local_items.sort_by_key(|i| tree.items_order.iter().position(|x| x == i).unwrap());
         
         let saved_ptr = arena.next_node_ptr;
-        let mut cond_tree = IhupTree::new(arena, local_items.clone())?;
+        let mut cond_tree = HuiTrieStruct::new(arena, local_items.clone())?;
         for (path, twu) in cpb {
             let filtered_path: Vec<ItemId> = path.into_iter()
                 .filter(|i| local_twu.get(i).copied().unwrap_or(0) >= min_utility)
@@ -229,20 +230,20 @@ fn mine_tree(tree: &IhupTree, arena: &mut NodeArena, prefix: &[ItemId], min_util
             }
         }
         
-        mine_tree(&cond_tree, arena, &new_prefix, min_utility, candidates, guard)?;
+        mine_tree(&cond_tree, arena, &new_prefix, min_utility, candidates, ctx)?;
         arena.next_node_ptr = saved_ptr;
     }
     Ok(())
 }
 
-pub struct Ihup;
+pub struct HuiTrie;
 
-impl Ihup {
+impl HuiTrie {
     pub fn new() -> Self { Self }
 }
 
-impl HuimAlgorithm for Ihup {
-    fn name(&self) -> &'static str { "IHUP" }
+impl HuimAlgorithm for HuiTrie {
+    fn name(&self) -> &'static str { "HUI-Trie" }
 
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
         let file_path = source.expect_file(self.name()).to_path_buf();
@@ -265,10 +266,10 @@ impl HuimAlgorithm for Ihup {
             
         valid_items.sort_by(|a, b| twu_1[b].cmp(&twu_1[a]).then_with(|| a.cmp(b)));
 
-        ctx.progress.set_stage("Phase 1: Building IHUP-Tree");
+        ctx.progress.set_stage("Phase 1: Building HUI-Trie");
         
         let mut arena = NodeArena::new(Arc::clone(&ctx.pool), Arc::clone(&ctx.store), Arc::clone(&ctx.progress));
-        let mut tree = IhupTree::new(&mut arena, valid_items.clone())?;
+        let mut tree = HuiTrieStruct::new(&mut arena, valid_items.clone())?;
         
         let reader = DbReader::new(BufReader::new(File::open(&file_path)?));
         for tx_res in reader {
@@ -284,9 +285,9 @@ impl HuimAlgorithm for Ihup {
             }
         }
 
-        ctx.progress.set_stage("Phase 1: Mining IHUP-Tree");
+        ctx.progress.set_stage("Phase 1: Mining HUI-Trie");
         let mut all_candidates = Vec::new();
-        mine_tree(&tree, &mut arena, &[], ctx.min_utility, &mut all_candidates, &ctx.guard)?;
+        mine_tree(&tree, &mut arena, &[], ctx.min_utility, &mut all_candidates, ctx)?;
 
         ctx.progress.set_stage("Phase 2: Computing Exact Utilities");
         

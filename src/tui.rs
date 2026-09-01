@@ -35,11 +35,10 @@ pub fn run_tui(
 
     let start_time = Instant::now();
 
-    let mut is_finished = false;
     loop {
-        if !is_finished && done.load(Ordering::Relaxed) {
-            is_finished = true;
-            progress.set_stage("FINISHED - Press 'q' to exit");
+        if done.load(Ordering::Relaxed) {
+            // Auto-close TUI when algorithm finishes so the terminal isn't blocked.
+            break;
         }
 
         terminal.draw(|f| {
@@ -156,7 +155,12 @@ pub fn run_tui(
         if crossterm::event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.code == KeyCode::Char('q') {
-                    break;
+                    // User requested mid-way exit
+                    let _ = disable_raw_mode();
+                    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+                    let _ = terminal.show_cursor();
+                    println!("Mining aborted by user.");
+                    std::process::exit(0);
                 }
             }
         }
