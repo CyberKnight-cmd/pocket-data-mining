@@ -20,6 +20,9 @@ pub struct MiningContext {
     pub max_length: usize,
     pub guard: Arc<super::MemoryGuard>,
     pub stats: super::DatasetStats,
+    /// What to do with a new utility list when the budget has no room: spill it, or drop it
+    /// and recompute it from its parents (cost model). From AIR_HUIM_REMAT (auto|off|always).
+    pub remat: crate::mining::components::ul_join::RematMode,
 }
 
 impl MiningContext {
@@ -37,7 +40,8 @@ impl MiningContext {
         stats: super::DatasetStats,
     ) -> Self {
         let chunk_bytes = pool.budget_bytes() / 4;
-        Self { pool, store, progress, min_utility, output_path, k, threads, chunk_bytes, min_length, max_length, guard, stats }
+        Self { pool, store, progress, min_utility, output_path, k, threads, chunk_bytes, min_length, max_length, guard, stats,
+               remat: crate::mining::components::ul_join::RematMode::from_env() }
     }
 
     /// Compute how many 1-itemset utility lists can fit in the chunk budget.

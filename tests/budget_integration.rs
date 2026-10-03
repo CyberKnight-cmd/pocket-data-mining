@@ -393,3 +393,67 @@ fn admission_reduces_threads_and_stays_exact() {
     let got: BTreeSet<_> = read_out(&dir.path().join("out.txt")).into_iter().collect();
     assert_eq!(got, huis(&brute_force(&db), 400));
 }
+
+/// Rematerialisation forced on at a tiny budget: lists that do not fit are dropped and later
+/// recomputed from their parents (lazy join streams) instead of being spilled. Results must
+/// stay exact for every utility-list variant (plain, PU-prune, average utility, Top-K,
+/// incremental), and drops must actually happen.
+#[test]
+fn rematerialisation_is_exact() {
+    use pocket_data_mining::mining::components::ul_join::RematMode;
+    let mut dropped_all = 0;
+    for seed in [1u64, 3, 20] {
+        let db = if seed == 20 { cheap_frequent_db(seed, 1000) } else { random_db(seed, 1500, 60, 8) };
+        let min = if seed == 20 {
+            db.txs.iter().flatten().filter(|e| e.0 == 999).map(|e| e.1).sum::<i64>() + 50
+        } else if seed == 3 { 120 } else { 400 };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.txt");
+        write_db(&db, &path);
+        let all = brute_force(&db);
+        let expected = huis(&all, min);
+        let mut dropped_total = 0;
+        for (name, mut algo) in [
+            ("fhm", Box::new(fhm::Fhm::new(false)) as Box<dyn HuimAlgorithm>),
+            ("hui-miner", Box::new(hui_miner::HuiMiner::new(false))),
+            ("hup-miner", Box::new(hup_miner::HupMiner::new(false))),
+            ("incfhm", Box::new(inc_fhm::IncFhm::new(false))),
+        ] {
+            for threads in [1, 4] {
+                let sub = dir.path().join(format!("{name}_{threads}"));
+                std::fs::create_dir_all(&sub).unwrap();
+                let mut ctx = ctx_with_budget(&sub, 160 << 10, threads);
+                ctx.min_utility = min;
+                ctx.remat = RematMode::Always;
+                algo.run(DataSource::file(&path), &mut ctx).unwrap();
+                dropped_total += ctx.progress.remat_dropped.load(std::sync::atomic::Ordering::Relaxed);
+                let got: BTreeSet<_> = read_out(&sub.join("out.txt")).into_iter().collect();
+                assert_eq!(got, expected, "{name} with rematerialisation (seed {seed}, threads {threads})");
+            }
+        }
+        // Average utility and Top-K under rematerialisation.
+        let sub = dir.path().join("haui");
+        std::fs::create_dir_all(&sub).unwrap();
+        let mut ctx = ctx_with_budget(&sub, 160 << 10, 2);
+        ctx.min_utility = min;
+        ctx.remat = RematMode::Always;
+        haui_miner::HauiMiner::new().run(DataSource::file(&path), &mut ctx).unwrap();
+        let want: BTreeSet<_> = all.iter().filter(|(s, u)| **u >= min * s.len() as i64).map(|(s, u)| (s.clone(), *u)).collect();
+        let got: BTreeSet<_> = read_out(&sub.join("out.txt")).into_iter().collect();
+        assert_eq!(got, want, "haui-miner with rematerialisation (seed {seed})");
+
+        let sub = dir.path().join("tko");
+        std::fs::create_dir_all(&sub).unwrap();
+        let mut ctx = ctx_with_budget(&sub, 160 << 10, 2);
+        ctx.min_utility = 0;
+        ctx.k = Some(25);
+        ctx.remat = RematMode::Always;
+        tko::Tko::new(false).run(DataSource::file(&path), &mut ctx).unwrap();
+        let mut got: Vec<i64> = read_out(&sub.join("out.txt")).iter().map(|x| x.1).collect();
+        got.sort_unstable_by(|a, b| b.cmp(a));
+        assert_eq!(got, top_k(&all, 25), "tko with rematerialisation (seed {seed})");
+
+        dropped_all += dropped_total;
+    }
+    assert!(dropped_all > 0, "expected lists to be dropped (rematerialised) at this budget");
+}

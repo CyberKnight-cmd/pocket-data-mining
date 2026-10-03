@@ -3,6 +3,7 @@ use crate::types::{ItemId, Utility, PageId, ULEntry, UtilityList, RecomputeFlag}
 use smallvec::SmallVec;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::buffer_pool::pool::{BufferPool, OwnedPage};
 use crate::mining::core::memory_guard::{MemoryGuard, Reservation, vec_bytes};
 
@@ -120,11 +121,17 @@ pub struct BodyAlloc<'a> {
     pub pool: &'a Arc<BufferPool>,
     pub guard: &'a Arc<MemoryGuard>,
     pub arena: Option<&'a SpillArena>,
+    /// Where spill/read timings are recorded (cost model), if any.
+    pub stats: Option<&'a CostStats>,
 }
 
 impl<'a> BodyAlloc<'a> {
     pub fn new(pool: &'a Arc<BufferPool>, guard: &'a Arc<MemoryGuard>) -> Self {
-        Self { pool, guard, arena: None }
+        Self { pool, guard, arena: None, stats: None }
+    }
+
+    pub fn with_stats(self, stats: &'a CostStats) -> Self {
+        Self { stats: Some(stats), ..self }
     }
 
     pub fn with_arena(self, arena: &'a SpillArena) -> Self {
@@ -134,6 +141,16 @@ impl<'a> BodyAlloc<'a> {
     /// Store entries that must go to the pool (no RAM reservation). Lists longer than one
     /// chunk become a chunked body, so no single page (and no single pin) grows with the data.
     pub fn spill_body(&self, entries: &[ULEntry]) -> io::Result<UlBody> {
+        let t0 = std::time::Instant::now();
+        let body = self.spill_body_untimed(entries)?;
+        if let Some(st) = self.stats {
+            st.write_ns.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            st.write_bytes.fetch_add((entries.len() * 20) as u64, Ordering::Relaxed);
+        }
+        Ok(body)
+    }
+
+    fn spill_body_untimed(&self, entries: &[ULEntry]) -> io::Result<UlBody> {
         let chunk = chunk_entries(self.guard);
         if entries.len() > chunk {
             let parts = entries.chunks(chunk).map(|c| self.spill_one(c)).collect::<io::Result<Vec<_>>>()?;
@@ -180,6 +197,7 @@ impl<'a> BodyAlloc<'a> {
                 let pin = slot.pin()?;
                 Ok(BodyView::pinned(pin, *offset as usize, *count as usize, self.guard))
             }
+            UlBody::Dropped => Err(dropped_err()),
             UlBody::Chunked(_) => {
                 // Contiguous access to a chunked body needs a copy; the utility-list engine
                 // streams chunks instead (see `BodyCursor`), this is for other callers.
@@ -209,6 +227,9 @@ pub enum UlBody {
     Packed { slot: Arc<OwnedPage>, offset: u32, count: u32 },
     /// A long list stored as consecutive chunks (each one of the variants above).
     Chunked(Vec<UlBody>),
+    /// Not stored: rematerialised on demand from its parents (see `ListSrc::Join`). Only the
+    /// header (length and sums) is kept.
+    Dropped,
 }
 
 impl UlBody {
@@ -218,8 +239,11 @@ impl UlBody {
             UlBody::OnDisk(p) => p.id,
             UlBody::Packed { slot, .. } => slot.id,
             UlBody::Chunked(parts) => parts.first().map_or(0, |p| p.page_id()),
+            UlBody::Dropped => 0,
         }
     }
+
+    pub fn is_dropped(&self) -> bool { matches!(self, UlBody::Dropped) }
 
     /// Number of entries.
     pub fn len(&self, alloc: BodyAlloc) -> io::Result<usize> {
@@ -232,6 +256,7 @@ impl UlBody {
                 for p in parts { n += p.len(alloc)?; }
                 n
             }
+            UlBody::Dropped => return Err(dropped_err()),
         })
     }
 
@@ -239,7 +264,181 @@ impl UlBody {
     pub fn last_tid(&self, alloc: BodyAlloc) -> io::Result<Option<u32>> {
         match self {
             UlBody::Chunked(parts) => match parts.last() { Some(p) => p.last_tid(alloc), None => Ok(None) },
+            UlBody::Dropped => Err(dropped_err()),
             _ => Ok(alloc.view(self)?.last().map(|e| { let t = e.tid; t })),
+        }
+    }
+}
+
+fn dropped_err() -> io::Error {
+    io::Error::new(io::ErrorKind::Other, "internal: a dropped utility list must be read through its recipe")
+}
+
+/// Measured costs, accumulated over a run, that drive the recompute-vs-spill decision.
+#[derive(Default)]
+pub struct CostStats {
+    pub join_ns: AtomicU64,
+    pub join_entries: AtomicU64,
+    pub write_ns: AtomicU64,
+    pub write_bytes: AtomicU64,
+    pub read_ns: AtomicU64,
+    pub read_bytes: AtomicU64,
+    /// Lists dropped for rematerialisation, and an estimate of the bytes not written.
+    pub dropped: AtomicU64,
+    pub dropped_bytes: AtomicU64,
+    /// Entries produced by recomputation (lazy streams and materialisations).
+    pub recomputed_entries: AtomicU64,
+}
+
+impl CostStats {
+    fn rate(ns: &AtomicU64, units: &AtomicU64, default: f64) -> f64 {
+        let (n, u) = (ns.load(Ordering::Relaxed), units.load(Ordering::Relaxed));
+        if u < 4096 { default } else { n as f64 / u as f64 }
+    }
+    /// ns per entry merged by a join (CPU cost of recomputation).
+    pub fn cpu_ns_per_entry(&self) -> f64 { Self::rate(&self.join_ns, &self.join_entries, 10.0) }
+    /// ns per byte written to / read from spilled pages (measured on this device).
+    pub fn write_ns_per_byte(&self) -> f64 { Self::rate(&self.write_ns, &self.write_bytes, 10.0) }
+    pub fn read_ns_per_byte(&self) -> f64 { Self::rate(&self.read_ns, &self.read_bytes, 5.0) }
+}
+
+/// What to do with a new list once the budget has no room for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RematMode {
+    /// Always spill (previous behaviour).
+    Off,
+    /// Cost model: drop when recomputing is estimated cheaper than spilling.
+    Auto,
+    /// Always drop (for experiments).
+    Always,
+}
+
+impl RematMode {
+    pub fn from_env() -> Self {
+        match std::env::var("AIR_HUIM_REMAT").ok().as_deref() {
+            Some("off") => RematMode::Off,
+            Some("always") => RematMode::Always,
+            _ => RematMode::Auto,
+        }
+    }
+}
+
+/// Inputs to the recompute-vs-spill decision for one new list.
+#[derive(Clone, Copy)]
+pub struct DropPolicy<'a> {
+    pub mode: RematMode,
+    /// How many later joins will read this list as P·y (each one re-runs the recomputation).
+    pub uses: u32,
+    /// Entries the recomputation has to merge (sizes of its parents).
+    pub recompute_entries: u64,
+    /// Upper bound on the new list's length.
+    pub max_len: u64,
+    /// Relative weight of flash writes (wear); AIR_HUIM_WRITE_WEIGHT, default 1.
+    pub write_weight: f64,
+    pub stats: &'a CostStats,
+}
+
+impl DropPolicy<'_> {
+    /// Recompute (drop) rather than spill?
+    fn prefer_drop(&self) -> bool {
+        match self.mode {
+            RematMode::Off => false,
+            RematMode::Always => true,
+            RematMode::Auto => {
+                let bytes = self.max_len as f64 * 20.0;
+                let reads = self.uses as f64 + 1.0; // each P·y use + one materialisation as P·x
+                let spill = bytes * (self.write_weight * self.stats.write_ns_per_byte() + reads * self.stats.read_ns_per_byte());
+                let recompute = reads * self.recompute_entries as f64 * self.stats.cpu_ns_per_entry();
+                recompute < spill
+            }
+        }
+    }
+}
+
+/// Source of a utility list for reading: a stored body, or a recipe (lazy join of parents).
+pub enum ListSrc<'a> {
+    Body(&'a UlBody),
+    Join(Box<JoinSrc<'a>>),
+}
+
+pub struct JoinSrc<'a> {
+    pub prefix: Option<ListSrc<'a>>,
+    pub px: ListSrc<'a>,
+    pub py: ListSrc<'a>,
+}
+
+/// Streaming reader over a `ListSrc`: a body cursor, or a lazy join that produces entries
+/// on the fly from its inputs' streams (no buffer for the recomputed list).
+pub enum ListStream<'a> {
+    Body(BodyCursor<'a>),
+    Join(Box<JoinStream<'a>>),
+}
+
+pub struct JoinStream<'a> {
+    p: Option<ListStream<'a>>,
+    x: ListStream<'a>,
+    y: ListStream<'a>,
+    cur: Option<ULEntry>,
+    done: bool,
+    stats: Option<&'a CostStats>,
+}
+
+impl<'a> ListStream<'a> {
+    pub fn new(alloc: BodyAlloc<'a>, src: &ListSrc<'a>, stats: Option<&'a CostStats>) -> Self {
+        match src {
+            ListSrc::Body(b) => ListStream::Body(BodyCursor::new(alloc, b)),
+            ListSrc::Join(j) => ListStream::Join(Box::new(JoinStream {
+                p: j.prefix.as_ref().map(|p| ListStream::new(alloc, p, stats)),
+                x: ListStream::new(alloc, &j.px, stats),
+                y: ListStream::new(alloc, &j.py, stats),
+                cur: None,
+                done: false,
+                stats,
+            })),
+        }
+    }
+
+    #[inline]
+    pub fn head(&mut self) -> io::Result<Option<ULEntry>> {
+        match self {
+            ListStream::Body(c) => c.head(),
+            ListStream::Join(j) => j.head(),
+        }
+    }
+
+    #[inline]
+    pub fn advance(&mut self) {
+        match self {
+            ListStream::Body(c) => c.advance(),
+            ListStream::Join(j) => j.cur = None,
+        }
+    }
+}
+
+impl JoinStream<'_> {
+    fn head(&mut self) -> io::Result<Option<ULEntry>> {
+        if let Some(e) = self.cur { return Ok(Some(e)); }
+        if self.done { return Ok(None); }
+        loop {
+            let (Some(ex), Some(ey)) = (self.x.head()?, self.y.head()?) else { self.done = true; return Ok(None) };
+            let (tx, ty) = (ex.tid, ey.tid);
+            if tx < ty { self.x.advance(); continue; }
+            if tx > ty { self.y.advance(); continue; }
+            let mut prefix_iutils = 0;
+            if let Some(c) = self.p.as_mut() {
+                while let Some(e) = c.head()? {
+                    let t = e.tid;
+                    if t < tx { c.advance(); continue; }
+                    if t == tx { prefix_iutils = e.iutils; }
+                    break;
+                }
+            }
+            self.x.advance();
+            self.y.advance();
+            let e = ULEntry { tid: tx, iutils: ex.iutils + ey.iutils - prefix_iutils, rutils: ey.rutils };
+            if let Some(s) = self.stats { s.recomputed_entries.fetch_add(1, Ordering::Relaxed); }
+            self.cur = Some(e);
+            return Ok(Some(e));
         }
     }
 }
@@ -271,7 +470,14 @@ impl<'a> BodyCursor<'a> {
             }
             if self.next_part >= self.parts.len() { return Ok(None); }
             self.cur = None; // unpin the previous chunk before pinning the next one
-            self.cur = Some(self.alloc.view(self.parts[self.next_part])?);
+            let part = self.parts[self.next_part];
+            let spilled = matches!(part, UlBody::OnDisk(_) | UlBody::Packed { .. });
+            let t0 = spilled.then(std::time::Instant::now);
+            self.cur = Some(self.alloc.view(part)?);
+            if let (Some(t0), Some(st)) = (t0, self.alloc.stats) {
+                st.read_ns.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                st.read_bytes.fetch_add((self.cur.as_ref().unwrap().len() * 20) as u64, Ordering::Relaxed);
+            }
             self.next_part += 1;
             self.pos = 0;
         }
@@ -290,6 +496,10 @@ pub struct BodyWriter<'a> {
     parts: Vec<UlBody>,
     /// Write chunks straight to the pool (used for lists we already know will not fit).
     prefer_disk: bool,
+    /// When the budget has no room: drop (rematerialise later) instead of spilling, if the
+    /// policy says recomputing is cheaper.
+    drop_policy: Option<DropPolicy<'a>>,
+    dropping: bool,
     pub len: u32,
     pub sum_iutils: Utility,
     pub sum_rutils: Utility,
@@ -299,37 +509,156 @@ pub struct BodyWriter<'a> {
 impl<'a> BodyWriter<'a> {
     pub fn new(alloc: BodyAlloc<'a>, prefer_disk: bool) -> Self {
         let chunk = chunk_entries(alloc.guard);
-        Self { alloc, chunk, buf: Vec::new(), parts: Vec::new(), prefer_disk, len: 0, sum_iutils: 0, sum_rutils: 0,
+        Self { alloc, chunk, buf: Vec::new(), parts: Vec::new(), prefer_disk, drop_policy: None, dropping: false,
+               len: 0, sum_iutils: 0, sum_rutils: 0,
                _res: alloc.guard.reserve_force(vec_bytes::<ULEntry>(chunk)) }
+    }
+
+    pub fn with_drop_policy(mut self, p: DropPolicy<'a>) -> Self {
+        self.drop_policy = Some(p);
+        self
     }
 
     #[inline]
     pub fn push(&mut self, e: ULEntry) -> io::Result<()> {
-        if self.buf.capacity() == 0 { self.buf.reserve_exact(self.chunk); }
         self.sum_iutils += e.iutils;
         self.sum_rutils += e.rutils;
         self.len += 1;
+        if self.dropping { return Ok(()); } // only the header is kept
+        if self.buf.capacity() == 0 { self.buf.reserve_exact(self.chunk); }
         self.buf.push(e);
         if self.buf.len() >= self.chunk { self.flush_part()?; }
         Ok(())
     }
 
     fn flush_part(&mut self) -> io::Result<()> {
-        if self.buf.is_empty() { return Ok(()); }
-        let entries = std::mem::take(&mut self.buf);
-        let part = if self.prefer_disk { self.alloc.spill_body(&entries)? } else { self.alloc.make_body(entries)? };
+        if self.buf.is_empty() || self.dropping { return Ok(()); }
+        let mut entries = std::mem::take(&mut self.buf);
+        let part = if self.prefer_disk {
+            self.alloc.spill_body(&entries)?
+        } else {
+            entries.shrink_to_fit();
+            match self.alloc.guard.reserve(vec_bytes::<ULEntry>(entries.capacity())) {
+                Some(r) => UlBody::InMemory(entries, Some(r)),
+                None => {
+                    if self.drop_policy.is_some_and(|p| p.prefer_drop()) {
+                        // Budget full and recomputing is cheaper: keep only the header.
+                        self.dropping = true;
+                        self.parts.clear();
+                        return Ok(());
+                    }
+                    self.alloc.spill_body(&entries)?
+                }
+            }
+        };
         self.parts.push(part);
         Ok(())
     }
 
     pub fn finish(mut self) -> io::Result<UlBody> {
         self.flush_part()?;
+        if self.dropping {
+            if let Some(p) = self.drop_policy {
+                p.stats.dropped.fetch_add(1, Ordering::Relaxed);
+                p.stats.dropped_bytes.fetch_add(self.len as u64 * 20, Ordering::Relaxed);
+            }
+            return Ok(UlBody::Dropped);
+        }
         Ok(match self.parts.len() {
             0 => UlBody::InMemory(Vec::new(), None),
             1 => self.parts.pop().unwrap(),
             _ => UlBody::Chunked(std::mem::take(&mut self.parts)),
         })
     }
+}
+
+/// Streaming join over list sources (stored bodies or recipes). Same semantics as
+/// `join_bodies`; inputs that were dropped are recomputed on the fly by lazy join streams, and
+/// the result may itself be dropped under `policy`.
+#[allow(clippy::too_many_arguments)]
+pub fn join_srcs<'a>(
+    itemset: SmallVec<[ItemId; 8]>,
+    prefix: Option<&ListSrc<'a>>,
+    px: &ListSrc<'a>,
+    py: &ListSrc<'a>,
+    alloc: BodyAlloc<'a>,
+    la: Option<LaPrune>,
+    policy: Option<DropPolicy<'a>>,
+    mut on_entry: Option<&mut dyn FnMut(&ULEntry)>,
+) -> io::Result<Option<(UtilityList, UlBody)>> {
+    let t0 = std::time::Instant::now();
+    let mut scanned = 0u64;
+    let mut bound = la.map_or(0, |l| l.start);
+    let lose = |e: &ULEntry| -> Utility {
+        match la { Some(l) if l.average => e.rutils, Some(_) => e.iutils + e.rutils, None => 0 }
+    };
+    let stats = alloc.stats;
+    let mut cx = ListStream::new(alloc, px, stats);
+    let mut cy = ListStream::new(alloc, py, stats);
+    let mut cp = prefix.map(|p| ListStream::new(alloc, p, stats));
+    let mut w = BodyWriter::new(alloc, false);
+    if let Some(p) = policy { w = w.with_drop_policy(p); }
+    loop {
+        let (Some(ex), Some(ey)) = (cx.head()?, cy.head()?) else { break };
+        scanned += 1;
+        let (tx, ty) = (ex.tid, ey.tid);
+        if tx < ty {
+            if let Some(l) = la {
+                bound -= lose(&ex);
+                if bound < l.threshold { return Ok(None); }
+            }
+            cx.advance();
+            continue;
+        }
+        if tx > ty {
+            cy.advance();
+            continue;
+        }
+        let mut prefix_iutils = 0;
+        if let Some(c) = cp.as_mut() {
+            while let Some(e) = c.head()? {
+                let t = e.tid;
+                if t < tx { c.advance(); continue; }
+                if t == tx { prefix_iutils = e.iutils; }
+                break;
+            }
+        }
+        let e = ULEntry { tid: tx, iutils: ex.iutils + ey.iutils - prefix_iutils, rutils: ey.rutils };
+        if let Some(f) = on_entry.as_mut() { f(&e); }
+        w.push(e)?;
+        cx.advance();
+        cy.advance();
+    }
+    drop((cx, cy, cp));
+    if let Some(st) = stats {
+        st.join_ns.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        st.join_entries.fetch_add(scanned.max(1), Ordering::Relaxed);
+    }
+    let (len, sum_iutils, sum_rutils) = (w.len, w.sum_iutils, w.sum_rutils);
+    let body = w.finish()?;
+    let page_id = body.page_id();
+    let ul = UtilityList {
+        itemset,
+        sum_iutils,
+        sum_rutils,
+        len,
+        page_id,
+        resident: true,
+        recompute: if body.is_dropped() { RecomputeFlag::Recomputable } else { RecomputeFlag::Materialized },
+    };
+    Ok(Some((ul, body)))
+}
+
+/// Materialise a list source into a stored body (RAM if it fits, else spilled).
+pub fn materialize<'a>(src: &ListSrc<'a>, alloc: BodyAlloc<'a>) -> io::Result<UlBody> {
+    let mut s = ListStream::new(alloc, src, alloc.stats);
+    let mut w = BodyWriter::new(alloc, false);
+    while let Some(e) = s.head()? {
+        w.push(e)?;
+        s.advance();
+    }
+    drop(s);
+    w.finish()
 }
 
 /// Streaming utility-list join: P·x·y from the bodies of P (None for the empty prefix), P·x

@@ -54,6 +54,17 @@ Below that floor the process would otherwise exceed its budget (or be killed by 
 The practical floor is dominated by the process itself (~5 MB resident before any work) and the
 margin; on chainstore the unspillable mining state is under 3 MB.
 
+## 2.5 Recompute instead of spill (cost-based rematerialisation)
+A derived utility list can always be rebuilt from its parents: list(P·x·y) =
+join(list(P), list(P·x), list(P·y)), and those parents are alive higher up the search. When a new
+list does not fit the budget, the engine may *drop* it (keeping only its header and a recipe)
+instead of writing it to disk. A dropped list read as P·y is produced on the fly by a lazy join
+stream over its parents (no buffer); when its own turn comes as P·x it is materialised once.
+A cost model decides per list, using costs measured during the run (ns per joined entry, ns per
+byte written / read): spill ≈ size × (write × AIR_HUIM_WRITE_WEIGHT + reads × read), recompute ≈
+uses × parent sizes × CPU cost. `AIR_HUIM_REMAT=auto|off|always`; each run reports lists dropped,
+bytes not written and entries recomputed. On flash storage (SD cards) this trades CPU for writes.
+
 ## 3. Buffer pool (`src/buffer_pool/pool.rs`)
 * Charges the shared ledger; if it cannot make room (everything pinned or the budget held by
   native structures), `insert_page` **writes through** to disk instead of caching.

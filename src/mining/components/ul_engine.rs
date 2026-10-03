@@ -26,7 +26,8 @@ use super::{
     eucs::Eucs,
     item_lists::ItemListBuilder,
     traversal::{TraversalContext, CandidateExtension},
-    ul_join::{join_bodies, BodyAlloc, BodyCursor, LaPrune, SpillArena, UlBody},
+    ul_join::{join_srcs, materialize, BodyAlloc, BodyCursor, CostStats, DropPolicy, LaPrune, ListSrc,
+              RematMode, SpillArena, UlBody},
 };
 
 /// Which variant of the utility-list search to run.
@@ -68,6 +69,50 @@ pub struct Ext {
     pub ul: UtilityList,
     pub body: UlBody,
     pub pu: Option<Box<[Utility]>>,
+    /// Rematerialisation recipe: this list = join(parent prefix, parent P·x, parent sibling
+    /// `recipe`). Needed when `body` is `Dropped`.
+    pub recipe: Option<u32>,
+}
+
+/// The parent search level, i.e. what this level's lists were joined from. A dropped list at
+/// this level is recomputed as join(prefix, px, sibs[recipe]), recursively if that sibling was
+/// dropped too.
+struct Parent<'p> {
+    prefix: Option<&'p UlBody>,
+    px: &'p UlBody,
+    sibs: Sibs<'p>,
+    up: Option<&'p Parent<'p>>,
+}
+
+#[derive(Clone, Copy)]
+enum Sibs<'p> {
+    /// Extensions of the parent level.
+    Exts(&'p [Ext]),
+    /// The 1-itemset lists (always stored).
+    Lists(&'p [(ItemId, UtilityList, UlBody)]),
+}
+
+impl<'p> Sibs<'p> {
+    fn body(self, j: u32) -> &'p UlBody {
+        match self { Sibs::Exts(e) => &e[j as usize].body, Sibs::Lists(l) => &l[j as usize].2 }
+    }
+    fn recipe(self, j: u32) -> Option<u32> {
+        match self { Sibs::Exts(e) => e[j as usize].recipe, Sibs::Lists(_) => None }
+    }
+}
+
+/// Readable source of a list: the stored body, or (if dropped) a lazy join of its parents.
+fn src_for<'p>(parent: Option<&'p Parent<'p>>, body: &'p UlBody, recipe: Option<u32>) -> ListSrc<'p> {
+    if !body.is_dropped() {
+        return ListSrc::Body(body);
+    }
+    let p = parent.expect("a dropped list always has a parent level");
+    let j = recipe.expect("a dropped list always has a recipe");
+    ListSrc::Join(Box::new(super::ul_join::JoinSrc {
+        prefix: p.prefix.map(ListSrc::Body),
+        px: ListSrc::Body(p.px),
+        py: src_for(p.up, p.sibs.body(j), p.sibs.recipe(j)),
+    }))
 }
 
 /// Shared Top-K state: a min-heap of the best K itemsets and the raised threshold.
@@ -129,6 +174,10 @@ struct Search<'a> {
     /// HUIM-MMU per-item thresholds.
     mmu: Option<&'a HashMap<ItemId, Utility>>,
     min_tid: u32,
+    /// Recompute-vs-spill: mode, measured costs, flash-write weight.
+    remat: RematMode,
+    stats: CostStats,
+    write_weight: f64,
 }
 
 impl Search<'_> {
@@ -202,18 +251,40 @@ impl Search<'_> {
         Ok(Some(sums.into_boxed_slice()))
     }
 
+    /// Join two sources into a new extension. `uses` = how many later joins will read the new
+    /// list as P·y (drives the recompute-vs-spill decision); `recipe` = sibling index of `py`.
     #[allow(clippy::too_many_arguments)]
-    fn join(&self, alloc: BodyAlloc, itemset: SmallVec<[ItemId; 8]>, prefix: Option<&UlBody>, px: &UlBody,
-            py: &UlBody, px_ul: &UtilityList, thresh: Utility) -> io::Result<Option<Ext>> {
+    fn join<'p>(&'p self, alloc: BodyAlloc<'p>, itemset: SmallVec<[ItemId; 8]>, prefix: Option<&ListSrc<'p>>,
+                px: &ListSrc<'p>, py: &ListSrc<'p>, px_ul: &UtilityList, py_ul: &UtilityList, thresh: Utility,
+                uses: u32, recipe: u32) -> io::Result<Option<Ext>> {
         let la = self.cfg.la_prune.then(|| LaPrune { start: self.bound(px_ul), threshold: thresh, average: self.cfg.average });
+        let policy = DropPolicy {
+            mode: self.remat,
+            uses,
+            recompute_entries: px_ul.len as u64 + py_ul.len as u64,
+            max_len: px_ul.len.min(py_ul.len) as u64,
+            write_weight: self.write_weight,
+            stats: &self.stats,
+        };
+        // Partition sums (PU-prune) are taken from the join's output stream, so they are
+        // available even when the list itself is dropped.
+        let p = self.cfg.pu_partitions;
+        let mut sums = vec![0 as Utility; p];
+        let n = self.n_tx.max(1);
+        let average = self.cfg.average;
+        let mut acc = |e: &ULEntry| {
+            let k = ((e.tid as u64 * p as u64) / n).min(p as u64 - 1) as usize;
+            sums[k] += if average { e.rutils } else { e.iutils + e.rutils };
+        };
+        let on_entry: Option<&mut dyn FnMut(&ULEntry)> = if p > 0 { Some(&mut acc) } else { None };
         // Streaming join: constant working set (a few chunks), whatever the list lengths.
-        let Some((ul, body)) = join_bodies(itemset, prefix, px, py, alloc, la)? else { return Ok(None) };
+        let Some((ul, body)) = join_srcs(itemset, prefix, px, py, alloc, la, Some(policy), on_entry)? else { return Ok(None) };
         if ul.len == 0 { return Ok(None); }
-        let pu = self.partition_sums(alloc, &body)?;
+        let pu = (p > 0).then(|| sums.into_boxed_slice());
         if let UlBody::InMemory(..) = &body {
             self.ctx.progress.fast_path_writes.fetch_add(1, Ordering::Relaxed);
         }
-        Ok(Some(Ext { ul, body, pu }))
+        Ok(Some(Ext { ul, body, pu, recipe: Some(recipe) }))
     }
 
     /// Record a HUI and return the (possibly raised) threshold.
@@ -226,10 +297,11 @@ impl Search<'_> {
         Ok(thresh)
     }
 
-    fn search(
-        &self,
-        alloc: BodyAlloc,
-        prefix_body: Option<&UlBody>,
+    fn search<'p>(
+        &'p self,
+        alloc: BodyAlloc<'p>,
+        prefix_body: Option<&'p UlBody>,
+        parent: Option<&'p Parent<'p>>,
         mut extensions: Vec<Ext>,
         writer: &mut WriterProxy,
     ) -> io::Result<()> {
@@ -240,11 +312,22 @@ impl Search<'_> {
 
         for i in 0..extensions.len() {
             let mut thresh = self.threshold(extensions[i].ul.itemset[0]);
+            if self.prune(&extensions[i].ul, thresh) {
+                extensions[i].body = UlBody::InMemory(Vec::new(), None);
+                continue;
+            }
+            // A dropped list is about to be used many times (as P·x and as the prefix of its
+            // children): rematerialise it once now.
+            if extensions[i].body.is_dropped() {
+                let body = {
+                    let src = src_for(parent, &extensions[i].body, extensions[i].recipe);
+                    materialize(&src, alloc)?
+                };
+                extensions[i].body = body;
+            }
             {
-                let px_ext = &extensions[i];
-                if self.prune(&px_ext.ul, thresh) {
-                    continue;
-                }
+                let exts: &[Ext] = &extensions;
+                let px_ext = &exts[i];
                 let depth = px_ext.ul.itemset.len();
                 ctx.progress.current_depth.store(depth, Ordering::Relaxed);
                 ctx.progress.fast_path_reads.fetch_add(1, Ordering::Relaxed);
@@ -260,21 +343,28 @@ impl Search<'_> {
 
                 if self.may_extend(depth) {
                     let item_x = *itemset_px.last().unwrap();
+                    let prefix_src = prefix_body.map(ListSrc::Body);
+                    let px_src = ListSrc::Body(&px_ext.body);
                     let mut next: Vec<Ext> = Vec::new();
-                    for j in (i + 1)..extensions.len() {
-                        let py_ext = &extensions[j];
+                    for j in (i + 1)..exts.len() {
+                        let py_ext = &exts[j];
                         let item_y = *py_ext.ul.itemset.last().unwrap();
                         if self.skip_pair(item_x, item_y, &px_ext.pu, &py_ext.pu, thresh) {
                             continue;
                         }
                         let mut new_itemset = itemset_px.clone();
                         new_itemset.push(item_y);
-                        if let Some(e) = self.join(alloc, new_itemset, prefix_body, &px_ext.body, &py_ext.body, &px_ext.ul, thresh)? {
+                        // A dropped sibling is read through a lazy join of its parents.
+                        let py_src = src_for(parent, &py_ext.body, py_ext.recipe);
+                        let uses = next.len() as u32;
+                        if let Some(e) = self.join(alloc, new_itemset, prefix_src.as_ref(), &px_src, &py_src,
+                                                   &px_ext.ul, &py_ext.ul, thresh, uses, j as u32)? {
                             next.push(e);
                         }
                     }
                     if !next.is_empty() {
-                        self.search(alloc, Some(&px_ext.body), next, writer)?;
+                        let child = Parent { prefix: prefix_body, px: &px_ext.body, sibs: Sibs::Exts(exts), up: parent };
+                        self.search(alloc, Some(&px_ext.body), Some(&child), next, writer)?;
                     }
                 }
             }
@@ -449,6 +539,9 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         n_tx,
         mmu: mmu.as_ref(),
         min_tid: cfg.min_tid,
+        remat: ctx.remat,
+        stats: CostStats::default(),
+        write_weight: std::env::var("AIR_HUIM_WRITE_WEIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0),
     };
     // PU-prune partition sums of the shared 1-itemset lists.
     let lists_pu: Vec<Option<Box<[Utility]>>> = if cfg.pu_partitions > 0 {
@@ -480,18 +573,21 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
 
         // Per-task arena: small spilled lists from this subtree share pages.
         let arena = SpillArena::new(&ctx.pool, &ctx.guard);
-        let alloc = BodyAlloc::new(&ctx.pool, &ctx.guard).with_arena(&arena);
+        let alloc = BodyAlloc::new(&ctx.pool, &ctx.guard).with_arena(&arena).with_stats(&search.stats);
         if search.untouched(alloc, body_x).unwrap() {
             return;
         }
         let pu_x = pu_of(i);
+        let px_src = ListSrc::Body(body_x);
         let mut extensions: Vec<Ext> = Vec::new();
-        for (j, (item_y, _, body_y)) in lists_ref.iter().enumerate().skip(i + 1) {
+        for (j, (item_y, ul_y, body_y)) in lists_ref.iter().enumerate().skip(i + 1) {
             if search.skip_pair(item_x, *item_y, &pu_x, &pu_of(j), thresh) {
                 continue;
             }
             let itemset: SmallVec<[ItemId; 8]> = [item_x, *item_y].iter().copied().collect();
-            if let Some(e) = search.join(alloc, itemset, None, body_x, body_y, ul_x, thresh).unwrap() {
+            let uses = extensions.len() as u32;
+            if let Some(e) = search.join(alloc, itemset, None, &px_src, &ListSrc::Body(body_y), ul_x, ul_y,
+                                         thresh, uses, j as u32).unwrap() {
                 extensions.push(e);
             }
         }
@@ -513,11 +609,29 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         }
 
         if !extensions.is_empty() {
-            search.search(alloc, Some(body_x), extensions, writer).unwrap();
+            let top = Parent { prefix: None, px: body_x, sibs: Sibs::Lists(lists_ref), up: None };
+            search.search(alloc, Some(body_x), Some(&top), extensions, writer).unwrap();
         }
     });
 
     ctx.progress.set_active_prefix(&[]);
+
+    // Recompute-vs-spill report.
+    {
+        use std::sync::atomic::Ordering::Relaxed;
+        let st = &search.stats;
+        let (dropped, saved, recomputed) = (st.dropped.load(Relaxed), st.dropped_bytes.load(Relaxed), st.recomputed_entries.load(Relaxed));
+        ctx.progress.remat_dropped.fetch_add(dropped, Relaxed);
+        ctx.progress.remat_bytes_saved.fetch_add(saved, Relaxed);
+        ctx.progress.remat_recomputed.fetch_add(recomputed, Relaxed);
+        if dropped > 0 || st.write_bytes.load(Relaxed) > 0 {
+            eprintln!("[remat] mode={:?} dropped {} lists ({:.1} MB not written), recomputed {} entries; \
+                       spilled {:.1} MB; measured: join {:.1} ns/entry, write {:.2} ns/B, read {:.2} ns/B",
+                      search.remat, dropped, saved as f64 / 1048576.0, recomputed,
+                      st.write_bytes.load(Relaxed) as f64 / 1048576.0,
+                      st.cpu_ns_per_entry(), st.write_ns_per_byte(), st.read_ns_per_byte());
+        }
+    }
 
     // Top-K mode: the heap holds the answer; write it out (highest utility first).
     if let Some(state) = &top_k {

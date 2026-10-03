@@ -7,6 +7,10 @@ pub struct MiningProgress {
     pub fast_path_reads: AtomicU64,
     pub fast_path_writes: AtomicU64,
     pub active_prefix: Mutex<String>,
+    /// Rematerialisation: lists dropped instead of spilled, bytes not written, entries recomputed.
+    pub remat_dropped: AtomicU64,
+    pub remat_bytes_saved: AtomicU64,
+    pub remat_recomputed: AtomicU64,
 }
 
 impl MiningProgress {
@@ -18,6 +22,9 @@ impl MiningProgress {
             fast_path_reads: AtomicU64::new(0),
             fast_path_writes: AtomicU64::new(0),
             active_prefix: Mutex::new("[]".into()),
+            remat_dropped: AtomicU64::new(0),
+            remat_bytes_saved: AtomicU64::new(0),
+            remat_recomputed: AtomicU64::new(0),
         }
     }
 
