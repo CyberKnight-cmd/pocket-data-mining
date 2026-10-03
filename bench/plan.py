@@ -19,6 +19,8 @@ import hashlib, json, os, sys
 CAL = json.load(open(sys.argv[1])) if len(sys.argv) > 1 and os.path.exists(sys.argv[1]) else {}
 # Average-utility (HAUI-Miner) thresholds are calibrated separately: u(X)/|X| needs a much
 # smaller threshold than total utility to produce a meaningful result.
+_cs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration_shuim.json")
+CAL_SHUIM = json.load(open(_cs)) if os.path.exists(_cs) else {}
 _ch = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration_haui.json")
 CAL_AVG = json.load(open(_ch)) if os.path.exists(_ch) else {}
 DDIR = sys.argv[2] if len(sys.argv) > 2 else "~/datasets/clean"
@@ -32,7 +34,7 @@ CODE = {
     "two-phase": "tp-2", "ihup": "twu-2", "fhm": "ul-2", "fhm-plus": "ul-2", "hui-miner": "ul-2",
     "efim-closed": "proj-2", "tko": "ul-2",
     "hup-miner": "hup-1", "mhuiminer": "mhui-1", "haui-miner": "haui-1",
-    "huim-ga": "heur-1", "huim-bpso": "heur-1", "mhui-aco": "heur-1",
+    "huim-ga": "heur-2", "huim-bpso": "heur-2", "mhui-aco": "heur-2",
     # re-implemented as distinct algorithms (round 2)
     "efim": "efim-merge-1", "up-growth": "upg-dlu-1", "up-growth-plus": "upgp-1",
     "hup-tree": "huptree-1", "hui-trie": "huitrie-1", "tku": "tku-1", "rept": "rept-1",
@@ -134,9 +136,15 @@ def main():
                 kw["spmf_args"] = [d["min_util_avg"]]
         if kw.get("k") is None and "min_util" not in kw:
             kw["min_util"] = d["min_util"]
-            # SHUIM mines 1000-transaction windows: same share of utility per window.
-            if kw["algo"] == "shuim" and d.get("stats"):
-                kw["min_util"] = max(1, d["min_util"] * 1000 // max(d["stats"]["tx"], 1000))
+            # SHUIM mines 1000-transaction windows; its threshold is calibrated separately
+            # (scaling the global threshold by window size explodes: one window wrote 36 GB).
+            if kw["algo"] == "shuim":
+                c = CAL_SHUIM.get(kw["dataset"], {})
+                first = (c.get("trials") or [{}])[0]
+                if c.get("chosen"):
+                    kw["min_util"] = c["chosen"]
+                elif first.get("status") == "too-much-output":
+                    kw["min_util"] = d["min_util"] * 4
         # Each result kind has its own reference: HUIs, closed HUIs, average-utility itemsets.
         kind = {"efim-closed": "closed", "haui-miner": "avg", "huim-mmu": "mmu", "shuim": "windows"}.get(kw["algo"], "hui")
         kw["ref_key"] = f"{kw['dataset']}|{kw.get('min_util')}|{kind}"

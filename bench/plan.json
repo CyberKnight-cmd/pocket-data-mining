@@ -367,8 +367,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 724,
-   "ref_key": "foodmart|724|windows",
+   "min_util": 3000,
+   "ref_key": "foodmart|3000|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -729,7 +729,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -744,7 +744,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -759,7 +759,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -967,8 +967,8 @@
    "priority": 100,
    "threads": 4,
    "watchdog": false,
-   "min_util": 724,
-   "ref_key": "foodmart|724|windows",
+   "min_util": 3000,
+   "ref_key": "foodmart|3000|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -1344,7 +1344,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -1359,7 +1359,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -1374,7 +1374,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -1582,8 +1582,8 @@
    "priority": 100,
    "threads": 4,
    "watchdog": false,
-   "min_util": 724,
-   "ref_key": "foodmart|724|windows",
+   "min_util": 3000,
+   "ref_key": "foodmart|3000|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -1959,7 +1959,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -1974,7 +1974,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -1989,7 +1989,7 @@
    "min_util": 3000,
    "ref_key": "foodmart|3000|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -2197,8 +2197,8 @@
    "priority": 100,
    "threads": 4,
    "watchdog": false,
-   "min_util": 724,
-   "ref_key": "foodmart|724|windows",
+   "min_util": 3000,
+   "ref_key": "foodmart|3000|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -2293,8 +2293,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2345,
-   "ref_key": "chainstore|2345|windows",
+   "min_util": 2609973,
+   "ref_key": "chainstore|2609973|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -2655,7 +2655,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -2670,7 +2670,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -2685,7 +2685,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -2893,8 +2893,8 @@
    "priority": 101,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2345,
-   "ref_key": "chainstore|2345|windows",
+   "min_util": 2609973,
+   "ref_key": "chainstore|2609973|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -3270,7 +3270,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -3285,7 +3285,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -3300,7 +3300,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -3508,8 +3508,8 @@
    "priority": 101,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2345,
-   "ref_key": "chainstore|2345|windows",
+   "min_util": 2609973,
+   "ref_key": "chainstore|2609973|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -3885,7 +3885,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -3900,7 +3900,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -3915,7 +3915,7 @@
    "min_util": 2609973,
    "ref_key": "chainstore|2609973|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -4123,8 +4123,8 @@
    "priority": 101,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2345,
-   "ref_key": "chainstore|2345|windows",
+   "min_util": 2609973,
+   "ref_key": "chainstore|2609973|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -4219,8 +4219,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 16,
-   "ref_key": "retail|16|windows",
+   "min_util": 1491,
+   "ref_key": "retail|1491|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -4581,7 +4581,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -4596,7 +4596,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -4611,7 +4611,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -4819,8 +4819,8 @@
    "priority": 102,
    "threads": 4,
    "watchdog": false,
-   "min_util": 16,
-   "ref_key": "retail|16|windows",
+   "min_util": 1491,
+   "ref_key": "retail|1491|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -5196,7 +5196,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -5211,7 +5211,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -5226,7 +5226,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -5434,8 +5434,8 @@
    "priority": 102,
    "threads": 4,
    "watchdog": false,
-   "min_util": 16,
-   "ref_key": "retail|16|windows",
+   "min_util": 1491,
+   "ref_key": "retail|1491|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -5811,7 +5811,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -5826,7 +5826,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -5841,7 +5841,7 @@
    "min_util": 1491,
    "ref_key": "retail|1491|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -6049,8 +6049,8 @@
    "priority": 102,
    "threads": 4,
    "watchdog": false,
-   "min_util": 16,
-   "ref_key": "retail|16|windows",
+   "min_util": 1491,
+   "ref_key": "retail|1491|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -6145,8 +6145,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1423,
-   "ref_key": "kosarak|1423|windows",
+   "min_util": 1409254,
+   "ref_key": "kosarak|1409254|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -6507,7 +6507,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -6522,7 +6522,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -6537,7 +6537,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -6745,8 +6745,8 @@
    "priority": 103,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1423,
-   "ref_key": "kosarak|1423|windows",
+   "min_util": 1409254,
+   "ref_key": "kosarak|1409254|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -7122,7 +7122,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -7137,7 +7137,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -7152,7 +7152,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -7360,8 +7360,8 @@
    "priority": 103,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1423,
-   "ref_key": "kosarak|1423|windows",
+   "min_util": 1409254,
+   "ref_key": "kosarak|1409254|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -7737,7 +7737,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -7752,7 +7752,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -7767,7 +7767,7 @@
    "min_util": 1409254,
    "ref_key": "kosarak|1409254|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -7975,8 +7975,8 @@
    "priority": 103,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1423,
-   "ref_key": "kosarak|1423|windows",
+   "min_util": 1409254,
+   "ref_key": "kosarak|1409254|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -8071,8 +8071,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 69189,
-   "ref_key": "accidents|69189|windows",
+   "min_util": 735531,
+   "ref_key": "accidents|735531|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -8433,7 +8433,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -8448,7 +8448,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -8463,7 +8463,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -8671,8 +8671,8 @@
    "priority": 104,
    "threads": 4,
    "watchdog": false,
-   "min_util": 69189,
-   "ref_key": "accidents|69189|windows",
+   "min_util": 735531,
+   "ref_key": "accidents|735531|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -9048,7 +9048,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -9063,7 +9063,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -9078,7 +9078,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -9286,8 +9286,8 @@
    "priority": 104,
    "threads": 4,
    "watchdog": false,
-   "min_util": 69189,
-   "ref_key": "accidents|69189|windows",
+   "min_util": 735531,
+   "ref_key": "accidents|735531|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -9663,7 +9663,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -9678,7 +9678,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -9693,7 +9693,7 @@
    "min_util": 23536996,
    "ref_key": "accidents|23536996|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -9901,8 +9901,8 @@
    "priority": 104,
    "threads": 4,
    "watchdog": false,
-   "min_util": 69189,
-   "ref_key": "accidents|69189|windows",
+   "min_util": 735531,
+   "ref_key": "accidents|735531|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -9997,8 +9997,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1,
-   "ref_key": "chicago|1|windows",
+   "min_util": 397,
+   "ref_key": "chicago|397|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -10359,7 +10359,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -10374,7 +10374,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -10389,7 +10389,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -10597,8 +10597,8 @@
    "priority": 105,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1,
-   "ref_key": "chicago|1|windows",
+   "min_util": 397,
+   "ref_key": "chicago|397|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -10974,7 +10974,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -10989,7 +10989,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -11004,7 +11004,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -11212,8 +11212,8 @@
    "priority": 105,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1,
-   "ref_key": "chicago|1|windows",
+   "min_util": 397,
+   "ref_key": "chicago|397|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -11589,7 +11589,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -11604,7 +11604,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -11619,7 +11619,7 @@
    "min_util": 397,
    "ref_key": "chicago|397|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -11827,8 +11827,8 @@
    "priority": 105,
    "threads": 4,
    "watchdog": false,
-   "min_util": 1,
-   "ref_key": "chicago|1|windows",
+   "min_util": 397,
+   "ref_key": "chicago|397|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -11923,8 +11923,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 21010,
-   "ref_key": "mushroom|21010|windows",
+   "min_util": 170686,
+   "ref_key": "mushroom|170686|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -12285,7 +12285,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -12300,7 +12300,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -12315,7 +12315,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -12523,8 +12523,8 @@
    "priority": 106,
    "threads": 4,
    "watchdog": false,
-   "min_util": 21010,
-   "ref_key": "mushroom|21010|windows",
+   "min_util": 170686,
+   "ref_key": "mushroom|170686|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -12900,7 +12900,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -12915,7 +12915,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -12930,7 +12930,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -13138,8 +13138,8 @@
    "priority": 106,
    "threads": 4,
    "watchdog": false,
-   "min_util": 21010,
-   "ref_key": "mushroom|21010|windows",
+   "min_util": 170686,
+   "ref_key": "mushroom|170686|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -13515,7 +13515,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -13530,7 +13530,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -13545,7 +13545,7 @@
    "min_util": 170686,
    "ref_key": "mushroom|170686|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -13753,8 +13753,8 @@
    "priority": 106,
    "threads": 4,
    "watchdog": false,
-   "min_util": 21010,
-   "ref_key": "mushroom|21010|windows",
+   "min_util": 170686,
+   "ref_key": "mushroom|170686|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -13849,8 +13849,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 168699,
-   "ref_key": "chess|168699|windows",
+   "min_util": 269582,
+   "ref_key": "chess|269582|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -14211,7 +14211,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -14226,7 +14226,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -14241,7 +14241,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -14449,8 +14449,8 @@
    "priority": 107,
    "threads": 4,
    "watchdog": false,
-   "min_util": 168699,
-   "ref_key": "chess|168699|windows",
+   "min_util": 269582,
+   "ref_key": "chess|269582|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -14826,7 +14826,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -14841,7 +14841,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -14856,7 +14856,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -15064,8 +15064,8 @@
    "priority": 107,
    "threads": 4,
    "watchdog": false,
-   "min_util": 168699,
-   "ref_key": "chess|168699|windows",
+   "min_util": 269582,
+   "ref_key": "chess|269582|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -15441,7 +15441,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -15456,7 +15456,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -15471,7 +15471,7 @@
    "min_util": 539164,
    "ref_key": "chess|539164|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -15679,8 +15679,8 @@
    "priority": 107,
    "threads": 4,
    "watchdog": false,
-   "min_util": 168699,
-   "ref_key": "chess|168699|windows",
+   "min_util": 269582,
+   "ref_key": "chess|269582|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -15775,8 +15775,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 38213,
-   "ref_key": "bms|38213|windows",
+   "min_util": 569401,
+   "ref_key": "bms|569401|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -16137,7 +16137,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -16152,7 +16152,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -16167,7 +16167,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -16375,8 +16375,8 @@
    "priority": 108,
    "threads": 4,
    "watchdog": false,
-   "min_util": 38213,
-   "ref_key": "bms|38213|windows",
+   "min_util": 569401,
+   "ref_key": "bms|569401|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -16752,7 +16752,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -16767,7 +16767,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -16782,7 +16782,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -16990,8 +16990,8 @@
    "priority": 108,
    "threads": 4,
    "watchdog": false,
-   "min_util": 38213,
-   "ref_key": "bms|38213|windows",
+   "min_util": 569401,
+   "ref_key": "bms|569401|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -17367,7 +17367,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -17382,7 +17382,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -17397,7 +17397,7 @@
    "min_util": 2277606,
    "ref_key": "bms|2277606|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -17605,8 +17605,8 @@
    "priority": 108,
    "threads": 4,
    "watchdog": false,
-   "min_util": 38213,
-   "ref_key": "bms|38213|windows",
+   "min_util": 569401,
+   "ref_key": "bms|569401|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -17701,8 +17701,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 66379,
-   "ref_key": "ecommerce|66379|windows",
+   "min_util": 994027,
+   "ref_key": "ecommerce|994027|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -18063,7 +18063,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -18078,7 +18078,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -18093,7 +18093,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -18301,8 +18301,8 @@
    "priority": 109,
    "threads": 4,
    "watchdog": false,
-   "min_util": 66379,
-   "ref_key": "ecommerce|66379|windows",
+   "min_util": 994027,
+   "ref_key": "ecommerce|994027|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -18678,7 +18678,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -18693,7 +18693,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -18708,7 +18708,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -18916,8 +18916,8 @@
    "priority": 109,
    "threads": 4,
    "watchdog": false,
-   "min_util": 66379,
-   "ref_key": "ecommerce|66379|windows",
+   "min_util": 994027,
+   "ref_key": "ecommerce|994027|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -19293,7 +19293,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -19308,7 +19308,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -19323,7 +19323,7 @@
    "min_util": 994027,
    "ref_key": "ecommerce|994027|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -19531,8 +19531,8 @@
    "priority": 109,
    "threads": 4,
    "watchdog": false,
-   "min_util": 66379,
-   "ref_key": "ecommerce|66379|windows",
+   "min_util": 994027,
+   "ref_key": "ecommerce|994027|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -19627,8 +19627,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 143,
-   "ref_key": "fruithut|143|windows",
+   "min_util": 26187,
+   "ref_key": "fruithut|26187|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -19989,7 +19989,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -20004,7 +20004,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -20019,7 +20019,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -20227,8 +20227,8 @@
    "priority": 110,
    "threads": 4,
    "watchdog": false,
-   "min_util": 143,
-   "ref_key": "fruithut|143|windows",
+   "min_util": 26187,
+   "ref_key": "fruithut|26187|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -20604,7 +20604,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -20619,7 +20619,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -20634,7 +20634,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -20842,8 +20842,8 @@
    "priority": 110,
    "threads": 4,
    "watchdog": false,
-   "min_util": 143,
-   "ref_key": "fruithut|143|windows",
+   "min_util": 26187,
+   "ref_key": "fruithut|26187|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -21219,7 +21219,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -21234,7 +21234,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -21249,7 +21249,7 @@
    "min_util": 26187,
    "ref_key": "fruithut|26187|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -21457,8 +21457,8 @@
    "priority": 110,
    "threads": 4,
    "watchdog": false,
-   "min_util": 143,
-   "ref_key": "fruithut|143|windows",
+   "min_util": 26187,
+   "ref_key": "fruithut|26187|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -21553,8 +21553,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2147,
-   "ref_key": "liquor|2147|windows",
+   "min_util": 447896,
+   "ref_key": "liquor|447896|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -21915,7 +21915,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -21930,7 +21930,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -21945,7 +21945,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -22153,8 +22153,8 @@
    "priority": 111,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2147,
-   "ref_key": "liquor|2147|windows",
+   "min_util": 447896,
+   "ref_key": "liquor|447896|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -22530,7 +22530,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -22545,7 +22545,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -22560,7 +22560,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -22768,8 +22768,8 @@
    "priority": 111,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2147,
-   "ref_key": "liquor|2147|windows",
+   "min_util": 447896,
+   "ref_key": "liquor|447896|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -23145,7 +23145,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -23160,7 +23160,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -23175,7 +23175,7 @@
    "min_util": 111974,
    "ref_key": "liquor|111974|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -23383,8 +23383,8 @@
    "priority": 111,
    "threads": 4,
    "watchdog": false,
-   "min_util": 2147,
-   "ref_key": "liquor|2147|windows",
+   "min_util": 447896,
+   "ref_key": "liquor|447896|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -23479,8 +23479,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 241573,
-   "ref_key": "connect|241573|windows",
+   "min_util": 509998,
+   "ref_key": "connect|509998|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -23841,7 +23841,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -23856,7 +23856,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -23871,7 +23871,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -24079,8 +24079,8 @@
    "priority": 112,
    "threads": 4,
    "watchdog": false,
-   "min_util": 241573,
-   "ref_key": "connect|241573|windows",
+   "min_util": 509998,
+   "ref_key": "connect|509998|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -24456,7 +24456,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -24471,7 +24471,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -24486,7 +24486,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -24694,8 +24694,8 @@
    "priority": 112,
    "threads": 4,
    "watchdog": false,
-   "min_util": 241573,
-   "ref_key": "connect|241573|windows",
+   "min_util": 509998,
+   "ref_key": "connect|509998|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -25071,7 +25071,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -25086,7 +25086,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -25101,7 +25101,7 @@
    "min_util": 16319950,
    "ref_key": "connect|16319950|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -25309,8 +25309,8 @@
    "priority": 112,
    "threads": 4,
    "watchdog": false,
-   "min_util": 241573,
-   "ref_key": "connect|241573|windows",
+   "min_util": 509998,
+   "ref_key": "connect|509998|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -25405,8 +25405,8 @@
    "is_reference": true,
    "threads": 4,
    "watchdog": false,
-   "min_util": 311592,
-   "ref_key": "pumsb|311592|windows",
+   "min_util": 477573,
+   "ref_key": "pumsb|477573|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -25767,7 +25767,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -25782,7 +25782,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -25797,7 +25797,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -26005,8 +26005,8 @@
    "priority": 113,
    "threads": 4,
    "watchdog": false,
-   "min_util": 311592,
-   "ref_key": "pumsb|311592|windows",
+   "min_util": 477573,
+   "ref_key": "pumsb|477573|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -26382,7 +26382,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -26397,7 +26397,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -26412,7 +26412,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -26620,8 +26620,8 @@
    "priority": 113,
    "threads": 4,
    "watchdog": false,
-   "min_util": 311592,
-   "ref_key": "pumsb|311592|windows",
+   "min_util": 477573,
+   "ref_key": "pumsb|477573|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },
@@ -26997,7 +26997,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -27012,7 +27012,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -27027,7 +27027,7 @@
    "min_util": 15282367,
    "ref_key": "pumsb|15282367|hui",
    "compare": "subset",
-   "code_version": "heur-1"
+   "code_version": "heur-2"
   },
   {
    "experiment": "cmp",
@@ -27235,8 +27235,8 @@
    "priority": 113,
    "threads": 4,
    "watchdog": false,
-   "min_util": 311592,
-   "ref_key": "pumsb|311592|windows",
+   "min_util": 477573,
+   "ref_key": "pumsb|477573|windows",
    "compare": "exact",
    "code_version": "shuim-1"
   },

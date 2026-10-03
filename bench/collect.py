@@ -23,6 +23,10 @@ usage: collect.py run PLAN.json [--data DIR] [--max-hours H]
 import argparse, gzip, hashlib, json, os, shutil, signal, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Safety: a run whose directory (outputs + spill files) grows past this is killed, and the
+# queue pauses when the disk has less than MIN_FREE left. One bad threshold once wrote 36 GB.
+RUN_DIR_CAP = int(os.environ.get("BENCH_RUN_DIR_CAP", 2 << 30))
+MIN_FREE = int(os.environ.get("BENCH_MIN_FREE", 5 << 30))
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PAGE = os.sysconf("SC_PAGE_SIZE")
 
@@ -177,6 +181,7 @@ def build_cmd(job, d, cfg):
               + [str(x) for x in job["spmf_args"]]
     else:
         raise ValueError(impl)
+    # (temp files of SHUIM/IncFHM and spill files live under the run directory)
     # Kernel-enforced hard limit: run inside a transient cgroup scope with MemoryMax = budget
     # and no swap. Exceeding it gets the process OOM-killed by the kernel (needs the memory
     # controller: cgroup_enable=memory on the Pi kernel command line).
@@ -221,10 +226,13 @@ def run_job(job, cfg, data_dir, refs):
         now = time.time()
         s = proc_sample(p.pid)
         if now - last_slow >= 1.0:
-            spill_b = dir_bytes(d) if job["impl"] != "spmf" else 0
+            spill_b = dir_bytes(d)
             peak_spill = max(peak_spill, spill_b)
             temp, mhz = soc()
             last_slow = now
+            if spill_b > RUN_DIR_CAP and not killed_reason:
+                killed_reason = f"disk-cap: run directory {spill_b >> 20} MB > {RUN_DIR_CAP >> 20} MB"
+                os.killpg(p.pid, signal.SIGKILL)
         if s:
             last = s
             hwm = max(hwm, s.get("VmHWM", 0), s.get("VmRSS", 0))
@@ -248,7 +256,9 @@ def run_job(job, cfg, data_dir, refs):
     wall = time.time() - t0
     log.close()
     ts.close()
-    if killed_reason:
+    if killed_reason and killed_reason.startswith("disk-cap"):
+        status = "disk-cap"
+    elif killed_reason:
         status = "budget-kill"
     elif job.get("limit") == "cgroup" and status in ("signal9", "exit137"):
         status = "kernel-oom"  # killed by the cgroup memory limit
@@ -291,6 +301,12 @@ def run_job(job, cfg, data_dir, refs):
     except FileNotFoundError:
         pass
     shutil.rmtree(os.path.join(d, "spill"), ignore_errors=True)
+    for f in os.listdir(d):  # leftover temp files of a killed run
+        if f.endswith(".tmp"):
+            try:
+                os.remove(os.path.join(d, f))
+            except OSError:
+                pass
     json.dump({"start": env0, "end": env_snapshot()}, open(os.path.join(d, "env.json"), "w"), indent=1)
     json.dump(res, open(os.path.join(d, "result.json"), "w"), indent=1)
     with open(os.path.join(data_dir, "results.jsonl"), "a") as f:
@@ -348,6 +364,10 @@ def main():
     t_end = time.time() + args.max_hours * 3600
     for i, job in enumerate(jobs):
         if time.time() > t_end:
+            break
+        free = shutil.disk_usage(args.data).free
+        if free < MIN_FREE:
+            print(f"Stopping: only {free >> 30} GB free on disk (< {MIN_FREE >> 30} GB)", flush=True)
             break
         res = run_job(job, cfg, args.data, refs)
         if res:
