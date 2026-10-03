@@ -1,18 +1,20 @@
 use std::io;
 use crate::mining::{
-    algorithms::fhm::Fhm,
+    components::heuristic_engine::{run_heuristic, Heuristic},
     core::{algorithm::HuimAlgorithm, context::MiningContext, data_source::DataSource},
 };
 
-/// HUIM-GA (Genetic Algorithm)
-/// Currently uses a hybrid wrapper over FHM to guarantee exactness in benchmarks.
+/// HUIM-GA (Kannimuthu & Premalatha, 2014): genetic-algorithm search for HUIs —
+/// TWU-weighted initial population, roulette selection, uniform crossover, add/remove mutation, elitism.
+/// Approximate: every reported itemset is a true HUI with its exact utility, but some HUIs
+/// may be missed (recall < 100%). Seeded and reproducible; see `components::heuristic_engine`.
 pub struct HuimGa {
-    inner: Fhm,
+    _enable_prefetch: bool,
 }
 
 impl HuimGa {
     pub fn new(enable_prefetch: bool) -> Self {
-        Self { inner: Fhm::new(enable_prefetch) }
+        Self { _enable_prefetch: enable_prefetch }
     }
 }
 
@@ -22,8 +24,6 @@ impl HuimAlgorithm for HuimGa {
     }
 
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
-        ctx.progress.set_stage("HUIM-GA: Evolving population...");
-        // Simulated genetic evolution epochs
-        self.inner.run(source, ctx)
+        run_heuristic(Heuristic::Ga, "HUIM-GA", source, ctx)
     }
 }
