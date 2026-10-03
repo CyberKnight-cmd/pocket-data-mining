@@ -6,6 +6,9 @@ pub mod ul_engine;
 pub mod tx_spool;
 pub mod pair_util;
 pub mod tree_engine;
+pub mod paged_db;
+pub mod proj_engine;
+pub mod efim_engine;
 
 pub use eucs::Eucs;
 pub use traversal::{TraversalContext, CandidateExtension};
