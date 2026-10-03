@@ -41,6 +41,8 @@ CODE = {
     "huim-mmu": "mmu-1", "shuim": "shuim-1", "incfhm": "incfhm-1",
 }
 PENDING = set()
+# r2: constant-memory (streaming) joins, admission control, margin 7 MB + 3%.
+RUNTIME = "r2"
 HEURISTIC = {"huim-ga", "huim-bpso", "mhui-aco"}
 
 SPMF = {  # air algo -> (SPMF name, args(min_util, k))
@@ -158,6 +160,10 @@ def main():
             kw["average_output"] = True
         if kw["impl"] in ("air", "air-baseline"):
             kw["code_version"] = CODE[kw["algo"]] if kw["impl"] == "air" else "baseline-dc6bd1b"
+        if kw["impl"] == "air":
+            # Changes that affect every algorithm (memory margin, streaming joins, admission
+            # control) bump this, so all Air-HUIM runs in one analysis use the same runtime.
+            kw["runtime_version"] = RUNTIME
         jobs.append(kw)
 
     budgets_cmp = [64, 256, 1024]
