@@ -28,8 +28,8 @@ impl<R: BufRead> Iterator for DbReader<R> {
             }
 
             let line = self.line_buf.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue; // skip blank lines and comments
+            if line.is_empty() || line.starts_with('#') || line.starts_with('@') || line.starts_with('%') {
+                continue; // skip blank lines, comments and SPMF metadata lines
             }
 
             return Some(parse_spmf_line(line, self.current_tid).map(|tx| {
@@ -67,9 +67,16 @@ fn parse_spmf_line(line: &str, tid: u32) -> io::Result<RawTransaction> {
         ));
     }
 
-    let items = item_ids.into_iter().zip(utilities.into_iter())
-        .map(|(item, utility)| ItemEntry { item, utility })
-        .collect();
+    // An item listed more than once in a transaction (kosarak, liquor_11 contain a few)
+    // is merged into one entry with the summed utility; every algorithm relies on an item
+    // appearing at most once per transaction. First-occurrence order is kept.
+    let mut items: Vec<ItemEntry> = Vec::with_capacity(item_ids.len());
+    for (item, utility) in item_ids.into_iter().zip(utilities) {
+        match items.iter_mut().find(|e| e.item == item) {
+            Some(e) => e.utility += utility,
+            None => items.push(ItemEntry { item, utility }),
+        }
+    }
 
     Ok(RawTransaction { tid, transaction_utility, items })
 }
@@ -78,6 +85,17 @@ fn parse_spmf_line(line: &str, tid: u32) -> io::Result<RawTransaction> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn duplicate_items_are_merged() {
+        let data = "@CONVERTED_FROM_TEXT\n5 3 5:40:10 20 10\n";
+        let mut reader = DbReader::new(Cursor::new(data));
+        let tx = reader.next().unwrap().unwrap();
+        assert_eq!(tx.items.len(), 2);
+        assert_eq!((tx.items[0].item, tx.items[0].utility), (5, 20));
+        assert_eq!((tx.items[1].item, tx.items[1].utility), (3, 20));
+        assert_eq!(tx.transaction_utility, 40);
+    }
 
     #[test]
     fn parse_simple_transaction() {

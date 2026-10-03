@@ -48,20 +48,20 @@ impl MiningContext {
         n.max(1) // always at least 1
     }
 
-    /// Apply OS safety net — cap Buffer Pool budget to (available_ram - 500MB).
+    /// Apply OS safety net — cap the whole budget (ledger and pool) to what the OS can
+    /// actually give us: (available RAM + what we already hold) - 500MB.
     pub fn apply_os_safety_net(&self) {
-        let mut sys = sysinfo::System::new_all();
-        sys.refresh_all();
-        let available = sys.available_memory();
-        let safety: u64 = 500 * 1024 * 1024;
-        let safe = available.saturating_sub(safety) as usize;
-        let requested = self.pool.budget_bytes();
-        let final_budget = requested.min(safe);
-        self.pool.set_budget(final_budget);
-        self.progress.set_stage(&format!(
-            "DFS (Budget: {:.0}MB)",
-            final_budget as f64 / 1024.0 / 1024.0
-        ));
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let available = sys.available_memory() as usize + self.guard.used();
+        let safety = 500 * 1024 * 1024;
+        let safe = available.saturating_sub(safety);
+        if safe < self.guard.budget() {
+            self.guard.set_budget(safe.max(self.guard.used()));
+        }
+        if safe < self.pool.budget_bytes() {
+            self.pool.set_budget(safe);
+        }
     }
 
     pub fn open_writer(&self) -> std::io::Result<ResultWriter> {
@@ -79,9 +79,13 @@ impl MiningContext {
             use crossbeam_channel as mpsc;
             use rayon::prelude::*;
 
-            // BOUNDED queue prevents RAM explosion! If the disk writer is too slow, 
-            // the Rayon threads will pause and wait, capping RAM overhead exactly.
-            let (tx_hui, rx_hui) = mpsc::bounded::<(Vec<crate::types::ItemId>, crate::types::Utility)>(100_000);
+            // BOUNDED queue prevents RAM explosion! If the disk writer is too slow,
+            // the Rayon threads will pause and wait. Capacity scales with the budget
+            // (~1/64 of it, at ~96 bytes per queued itemset) and is accounted up front.
+            const MSG_BYTES: usize = 96;
+            let cap = (self.guard.budget() / 64 / MSG_BYTES).clamp(1_024, 100_000);
+            let _queue_res = self.guard.reserve_force(cap * MSG_BYTES);
+            let (tx_hui, rx_hui) = mpsc::bounded::<(Vec<crate::types::ItemId>, crate::types::Utility)>(cap);
             let output_path = self.output_path.clone();
             
             let writer_thread = std::thread::spawn(move || {
