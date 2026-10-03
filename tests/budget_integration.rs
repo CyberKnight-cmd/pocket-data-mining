@@ -119,6 +119,8 @@ struct RunResult {
     out: Vec<(Itemset, i64)>,
     peak: usize,
     leaked: usize,
+    /// Refused up front by admission control (only allowed at the tiny budget).
+    refused: bool,
 }
 
 fn run(algo: &mut dyn HuimAlgorithm, db_path: &std::path::Path, min: i64, k: Option<u64>,
@@ -139,13 +141,18 @@ fn run(algo: &mut dyn HuimAlgorithm, db_path: &std::path::Path, min: i64, k: Opt
         pool.clone(), store_dyn, Arc::new(pocket_data_mining::progress::MiningProgress::new()),
         min, out.clone(), k, threads, 1, usize::MAX, guard.clone(), stats,
     );
-    algo.run(DataSource::file(db_path), &mut ctx).unwrap();
+    if let Err(e) = algo.run(DataSource::file(db_path), &mut ctx) {
+        // A clean refusal by admission control (budget below what cannot be spilled) is an
+        // acceptable outcome only at the tiny budget; anything else is a failure.
+        assert!(e.kind() == std::io::ErrorKind::OutOfMemory && budget < (1 << 20), "{}: {e}", algo.name());
+        return RunResult { out: Vec::new(), peak: guard.peak(), leaked: 0, refused: true };
+    }
     let peak = guard.peak();
     drop(ctx);
     // Whatever is still charged must be cached pool frames (re-loadable, evictable).
     while pool.evict_one().unwrap().is_some() {}
     let leaked = guard.used();
-    RunResult { out: read_out(&out), peak, leaked }
+    RunResult { out: read_out(&out), peak, leaked, refused: false }
 }
 
 fn exact_algorithms() -> Vec<(&'static str, Box<dyn HuimAlgorithm>)> {
@@ -190,6 +197,7 @@ fn check(db: Db, seed: u64, min: i64) {
         for threads in [1, 4] {
             for (name, mut algo) in exact_algorithms() {
                 let r = run(algo.as_mut(), &path, min, None, budget, threads);
+                assert!(!r.refused, "{name}: refused by admission control at budget {budget} (seed {seed})");
                 let got: BTreeSet<_> = r.out.iter().cloned().collect();
                 assert_eq!(r.out.len(), got.len(), "{name}: duplicate output (seed {seed}, budget {budget}, threads {threads})");
                 assert_eq!(got, expected, "{name}: wrong HUIs (seed {seed}, budget {budget}, threads {threads})");
@@ -223,6 +231,7 @@ fn check(db: Db, seed: u64, min: i64) {
                     .filter(|(s, u)| **u >= s.iter().map(|&i| mu(i)).min().unwrap())
                     .map(|(s, u)| (s.clone(), *u)).collect();
                 let r = run(&mut huim_mmu::HuimMmu::new(false), &path, min, None, budget, threads);
+                assert!(!r.refused, "refused by admission control at budget {budget} (seed {seed})");
                 let got: BTreeSet<_> = r.out.iter().cloned().collect();
                 assert_eq!(r.out.len(), got.len(), "huim-mmu duplicates (seed {seed})");
                 assert_eq!(got, want, "huim-mmu (seed {seed}, budget {budget}, threads {threads})");
@@ -246,15 +255,20 @@ fn check(db: Db, seed: u64, min: i64) {
                 }
                 if !window.is_empty() { mine(&window, &mut want); }
                 let r = run(&mut shuim::Shuim::new(false), &path, min, None, budget, threads);
-                let mut got = r.out.clone();
-                got.sort();
-                want.sort();
-                assert_eq!(got, want, "shuim (seed {seed}, budget {budget}, threads {threads})");
-                assert_eq!(r.leaked, 0, "shuim leaked (seed {seed})");
+                // SHUIM's window (1000 transactions) is algorithm state that cannot spill; at
+                // the tiny budget it does not fit and the run must be refused cleanly.
+                if !r.refused {
+                    let mut got = r.out.clone();
+                    got.sort();
+                    want.sort();
+                    assert_eq!(got, want, "shuim (seed {seed}, budget {budget}, threads {threads})");
+                    assert_eq!(r.leaked, 0, "shuim leaked (seed {seed})");
+                }
             }
 
             // High average-utility itemsets: u(X) / |X| >= min.
             let r = run(&mut haui_miner::HauiMiner::new(), &path, min, None, budget, threads);
+                assert!(!r.refused, "refused by admission control at budget {budget} (seed {seed})");
             let got: BTreeSet<_> = r.out.iter().cloned().collect();
             let want: BTreeSet<_> = all.iter().filter(|(s, u)| **u >= min * s.len() as i64)
                 .map(|(s, u)| (s.clone(), *u)).collect();
@@ -263,6 +277,7 @@ fn check(db: Db, seed: u64, min: i64) {
 
             // Closed HUIs.
             let r = run(&mut efim_closed::EfimClosed::new(), &path, min, None, budget, threads);
+                assert!(!r.refused, "refused by admission control at budget {budget} (seed {seed})");
             let got: BTreeSet<_> = r.out.iter().cloned().collect();
             assert_eq!(got, closed_huis(&db, &all, min), "efim-closed (seed {seed}, budget {budget})");
             assert_eq!(r.leaked, 0, "efim-closed leaked (seed {seed})");
@@ -275,6 +290,7 @@ fn check(db: Db, seed: u64, min: i64) {
             ] {
                 let k = 25;
                 let r = run(algo.as_mut(), &path, 0, Some(k as u64), budget, threads);
+                assert!(!r.refused, "refused by admission control at budget {budget} (seed {seed})");
                 let mut got: Vec<i64> = r.out.iter().map(|x| x.1).collect();
                 got.sort_unstable_by(|a, b| b.cmp(a));
                 assert_eq!(got, top_k(&all, k), "{name} top-k (seed {seed}, budget {budget})");
@@ -331,4 +347,49 @@ fn all_algorithms_exact_and_within_budget_cheap_frequent_item() {
         let min = cheap_total + 50;
         check(db, seed, min);
     }
+}
+
+fn ctx_with_budget(dir: &std::path::Path, budget: usize, threads: usize) -> MiningContext {
+    let store = Arc::new(FileChunkStore::new(dir.join("chunks"), false).unwrap());
+    let store_dyn = store.clone() as Arc<dyn ChunkStore + Send + Sync>;
+    let pool = BufferPool::new_arc(budget, store.clone(), Box::new(LruPolicy::new()));
+    let guard = Arc::new(MemoryGuard::new(budget, store_dyn.clone()));
+    pool.attach_guard(guard.clone());
+    let stats = DatasetStats {
+        num_transactions: 0, num_unique_items: 0, avg_transaction_length: 0.0,
+        max_transaction_length: 0, total_utility: 0, density: 0.0,
+        file_size_bytes: 0, estimated_db_ram_bytes: 0,
+    };
+    MiningContext::new(pool, store_dyn, Arc::new(pocket_data_mining::progress::MiningProgress::new()),
+                       400, dir.join("out.txt"), None, threads, 1, usize::MAX, guard, stats)
+}
+
+/// Below the floor (what cannot be spilled), the run is refused up front with a clear error
+/// naming a workable budget — it neither crashes mid-run nor silently exceeds the budget.
+#[test]
+fn admission_refuses_budget_below_floor() {
+    let db = random_db(5, 1500, 400, 8);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db.txt");
+    write_db(&db, &path);
+    let mut ctx = ctx_with_budget(dir.path(), 8 << 10, 4);
+    let err = fhm::Fhm::new(false).run(DataSource::file(&path), &mut ctx).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::OutOfMemory);
+    assert!(err.to_string().contains("Use at least -b"), "{err}");
+    assert_eq!(std::fs::read_to_string(dir.path().join("out.txt")).unwrap_or_default(), "", "no partial output");
+}
+
+/// When per-thread working sets do not fit, admission lowers the thread count instead of
+/// overshooting — and the result is still exact.
+#[test]
+fn admission_reduces_threads_and_stays_exact() {
+    let db = random_db(6, 1200, 60, 8);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db.txt");
+    write_db(&db, &path);
+    let mut ctx = ctx_with_budget(dir.path(), 160 << 10, 16);
+    fhm::Fhm::new(false).run(DataSource::file(&path), &mut ctx).unwrap();
+    assert!(ctx.threads < 16, "expected fewer threads at a tiny budget, got {}", ctx.threads);
+    let got: BTreeSet<_> = read_out(&dir.path().join("out.txt")).into_iter().collect();
+    assert_eq!(got, huis(&brute_force(&db), 400));
 }

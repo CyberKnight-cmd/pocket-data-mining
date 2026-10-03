@@ -409,10 +409,8 @@ fn run_mining(
     // stacks. Hold back a margin for those so that the process RSS — not just the
     // ledger — stays within what the user asked for.
     let budget_bytes = budget_mb * 1024 * 1024;
-    // Measured: RSS exceeds the ledger by ~8 MB fixed + ~10% of what is in use.
-    let margin = ((8 << 20) + budget_bytes * 12 / 100).min(128 << 20).min(budget_bytes / 2);
     let guard = Arc::new(pocket_data_mining::mining::MemoryGuard::new(
-        budget_bytes - margin,
+        pocket_data_mining::mining::core::memory_guard::ledger_for_budget(budget_bytes),
         Arc::clone(&store) as Arc<dyn ChunkStore + Send + Sync>,
     ));
     // One ledger for everything: pool frames and native structures share the budget.

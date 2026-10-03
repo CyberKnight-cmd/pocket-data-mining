@@ -31,6 +31,29 @@ fn default_pool_reserve(budget: usize) -> usize {
     (budget / 4).min(256 * 1024 * 1024)
 }
 
+/// Ledger budget for a user-facing budget: the user's number minus a margin for memory the
+/// ledger cannot see (allocator overhead, I/O buffers, thread stacks). Measured with streaming
+/// joins (chainstore, FHM): peak RSS exceeds the peak ledger by ~6.5 MB at 24-64 MB budgets and
+/// ~30 MB at 1 GB, so the margin is 7 MB + 3% (capped at 128 MB and at half the budget).
+pub fn ledger_for_budget(budget: usize) -> usize {
+    let margin = ((7 << 20) + budget * 3 / 100).min(128 << 20).min(budget / 2);
+    budget - margin
+}
+
+/// Smallest user-facing budget (whole MB) whose ledger leaves room for the unspillable working
+/// set once `in_use` bytes are already accounted. `need(ledger_budget)` returns that working set
+/// for a given ledger budget (it grows with the budget: chunk and segment sizes scale with it).
+pub fn min_budget_for(need: &dyn Fn(usize) -> usize, in_use: usize) -> usize {
+    let mut mb = 1usize;
+    while mb < (1 << 20) {
+        let ledger = ledger_for_budget(mb << 20);
+        let native = ledger.saturating_sub(default_pool_reserve(ledger));
+        if native >= in_use + need(ledger) { return mb; }
+        mb += 1;
+    }
+    mb
+}
+
 impl MemoryGuard {
     pub fn new(budget: usize, store: Arc<dyn ChunkStore + Send + Sync>) -> Self {
         Self {

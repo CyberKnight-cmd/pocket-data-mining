@@ -41,5 +41,8 @@ Input is the SPMF utility format (`items:transaction_utility:item_utilities`).
 ## Known limitations
 - The memory bound is verified empirically (tests and measured RSS), not proven: small,
   bounded transient allocations are accounted but can briefly exceed the ledger.
+- Every run has a floor (process ~5 MB + margin + a few MB of unspillable state). Utility-list
+  and EFIM runs below it are refused up front with the minimum workable budget; admission
+  control is not yet applied to the tree, Two-Phase, EFIM-Closed and heuristic engines.
 - mHUIMiner uses a pair-level existence filter rather than the paper's IHUP-tree, and HUI-Trie
   is our own design (no published description found) — see [Implemented.md](Implemented.md).

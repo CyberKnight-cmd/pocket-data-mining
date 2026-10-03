@@ -26,7 +26,7 @@ use super::{
     eucs::Eucs,
     item_lists::ItemListBuilder,
     traversal::{TraversalContext, CandidateExtension},
-    ul_join::{join_utility_lists_la, BodyAlloc, LaPrune, SpillArena, UlBody},
+    ul_join::{join_bodies, BodyAlloc, BodyCursor, LaPrune, SpillArena, UlBody},
 };
 
 /// Which variant of the utility-list search to run.
@@ -160,8 +160,9 @@ impl Search<'_> {
 
     /// Incremental mode: an itemset that does not occur in the new batch keeps its utility,
     /// and neither do its supersets — skip the whole subtree.
-    fn untouched(&self, entries: &[ULEntry]) -> bool {
-        self.min_tid > 0 && entries.last().is_none_or(|e| { let t = e.tid; t < self.min_tid })
+    fn untouched(&self, alloc: BodyAlloc, body: &UlBody) -> io::Result<bool> {
+        if self.min_tid == 0 { return Ok(false); }
+        Ok(body.last_tid(alloc)?.is_none_or(|t| t < self.min_tid))
     }
 
     fn is_hui(&self, ul: &UtilityList, thresh: Utility) -> bool {
@@ -187,30 +188,28 @@ impl Search<'_> {
     }
 
     /// Per-partition bound sums of a list (PU-prune), or None when disabled.
-    fn partition_sums(&self, entries: &[ULEntry]) -> Option<Box<[Utility]>> {
+    fn partition_sums(&self, alloc: BodyAlloc, body: &UlBody) -> io::Result<Option<Box<[Utility]>>> {
         let p = self.cfg.pu_partitions;
-        if p == 0 { return None; }
+        if p == 0 { return Ok(None); }
         let mut sums = vec![0 as Utility; p];
         let n = self.n_tx.max(1);
-        for e in entries {
+        let mut c = BodyCursor::new(alloc, body);
+        while let Some(e) = c.head()? {
             let k = ((e.tid as u64 * p as u64) / n).min(p as u64 - 1) as usize;
             sums[k] += if self.cfg.average { e.rutils } else { e.iutils + e.rutils };
+            c.advance();
         }
-        Some(sums.into_boxed_slice())
+        Ok(Some(sums.into_boxed_slice()))
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn join(&self, alloc: BodyAlloc, itemset: SmallVec<[ItemId; 8]>, prefix: &[ULEntry], px: &[ULEntry],
-            py: &[ULEntry], px_ul: &UtilityList, thresh: Utility) -> io::Result<Option<Ext>> {
+    fn join(&self, alloc: BodyAlloc, itemset: SmallVec<[ItemId; 8]>, prefix: Option<&UlBody>, px: &UlBody,
+            py: &UlBody, px_ul: &UtilityList, thresh: Utility) -> io::Result<Option<Ext>> {
         let la = self.cfg.la_prune.then(|| LaPrune { start: self.bound(px_ul), threshold: thresh, average: self.cfg.average });
-        let Some((ul, body)) = join_utility_lists_la(itemset, prefix, px, py, alloc, la)? else { return Ok(None) };
+        // Streaming join: constant working set (a few chunks), whatever the list lengths.
+        let Some((ul, body)) = join_bodies(itemset, prefix, px, py, alloc, la)? else { return Ok(None) };
         if ul.len == 0 { return Ok(None); }
-        let pu = if self.cfg.pu_partitions > 0 {
-            let v = alloc.view(&body)?;
-            self.partition_sums(&v)
-        } else {
-            None
-        };
+        let pu = self.partition_sums(alloc, &body)?;
         if let UlBody::InMemory(..) = &body {
             self.ctx.progress.fast_path_writes.fetch_add(1, Ordering::Relaxed);
         }
@@ -230,7 +229,7 @@ impl Search<'_> {
     fn search(
         &self,
         alloc: BodyAlloc,
-        prefix_body: &[ULEntry],
+        prefix_body: Option<&UlBody>,
         mut extensions: Vec<Ext>,
         writer: &mut WriterProxy,
     ) -> io::Result<()> {
@@ -248,9 +247,8 @@ impl Search<'_> {
                 }
                 let depth = px_ext.ul.itemset.len();
                 ctx.progress.current_depth.store(depth, Ordering::Relaxed);
-                let px = alloc.view(&px_ext.body)?;
                 ctx.progress.fast_path_reads.fetch_add(1, Ordering::Relaxed);
-                if self.untouched(&px) {
+                if self.untouched(alloc, &px_ext.body)? {
                     continue;
                 }
 
@@ -269,15 +267,14 @@ impl Search<'_> {
                         if self.skip_pair(item_x, item_y, &px_ext.pu, &py_ext.pu, thresh) {
                             continue;
                         }
-                        let py = alloc.view(&py_ext.body)?;
                         let mut new_itemset = itemset_px.clone();
                         new_itemset.push(item_y);
-                        if let Some(e) = self.join(alloc, new_itemset, prefix_body, &px, &py, &px_ext.ul, thresh)? {
+                        if let Some(e) = self.join(alloc, new_itemset, prefix_body, &px_ext.body, &py_ext.body, &px_ext.ul, thresh)? {
                             next.push(e);
                         }
                     }
                     if !next.is_empty() {
-                        self.search(alloc, &px, next, writer)?;
+                        self.search(alloc, Some(&px_ext.body), next, writer)?;
                     }
                 }
             }
@@ -311,6 +308,25 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
     let max_tid = if cfg.max_tid == 0 { u32::MAX } else { cfg.max_tid };
     let db_reader = DbReader::new(BufReader::new(File::open(&dataset_path)?));
     let twu = TwuFilter::new(initial_threshold).compute(db_reader.filter_map(Result::ok).take_while(|t| t.tid < max_tid));
+
+    // Admission control: what cannot be spilled. Fixed: per-item headers and maps, the output
+    // queue, the list builder's segment buffers. Per worker: a streaming join (3 pinned input
+    // chunks + 1 output chunk), its spill-arena page, and extension headers along the DFS path.
+    {
+        let n = twu.twu.len().max(1);
+        let ext_b = std::mem::size_of::<Ext>() + cfg.pu_partitions * 8;
+        let multi = ctx.threads > 1;
+        // Same size rules as ul_join::chunk_entries, arena pages, builder segments, output queue.
+        let estimate = |b: usize| -> (usize, usize) {
+            let chunk_b = (b / 256 / 20).clamp(64, 4096) * 20;
+            let queue = if multi { (b / 64).clamp(64 * 96, 100_000 * 96) } else { 0 };
+            let fixed = n * (std::mem::size_of::<(ItemId, UtilityList, UlBody)>() + 96)
+                + 2 * (b / 32).clamp(4 * 1024, 1 << 20) + queue;
+            let per_thread = 4 * chunk_b + (b / 64).clamp(4 * 1024, 256 * 1024) + 2 * n.min(4096) * ext_b;
+            (fixed, per_thread)
+        };
+        ctx.admit(cfg.name, &estimate)?;
+    }
 
     // HUIM-MMU: per-item minimum utilities mu(i) = max(min_utility, beta * u(i)). They fix the
     // processing order (ascending mu), which remaining utilities must follow, so they are
@@ -437,7 +453,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
     // PU-prune partition sums of the shared 1-itemset lists.
     let lists_pu: Vec<Option<Box<[Utility]>>> = if cfg.pu_partitions > 0 {
         let a = BodyAlloc::new(&ctx.pool, &ctx.guard);
-        lists.iter().map(|(_, _, b)| a.view(b).map(|v| search.partition_sums(&v))).collect::<io::Result<_>>()?
+        lists.iter().map(|(_, _, b)| search.partition_sums(a, b)).collect::<io::Result<_>>()?
     } else {
         Vec::new()
     };
@@ -465,8 +481,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         // Per-task arena: small spilled lists from this subtree share pages.
         let arena = SpillArena::new(&ctx.pool, &ctx.guard);
         let alloc = BodyAlloc::new(&ctx.pool, &ctx.guard).with_arena(&arena);
-        let px = alloc.view(body_x).unwrap();
-        if search.untouched(&px) {
+        if search.untouched(alloc, body_x).unwrap() {
             return;
         }
         let pu_x = pu_of(i);
@@ -475,9 +490,8 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
             if search.skip_pair(item_x, *item_y, &pu_x, &pu_of(j), thresh) {
                 continue;
             }
-            let py = alloc.view(body_y).unwrap();
             let itemset: SmallVec<[ItemId; 8]> = [item_x, *item_y].iter().copied().collect();
-            if let Some(e) = search.join(alloc, itemset, &[], &px, &py, ul_x, thresh).unwrap() {
+            if let Some(e) = search.join(alloc, itemset, None, body_x, body_y, ul_x, thresh).unwrap() {
                 extensions.push(e);
             }
         }
@@ -499,7 +513,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         }
 
         if !extensions.is_empty() {
-            search.search(alloc, &px, extensions, writer).unwrap();
+            search.search(alloc, Some(body_x), extensions, writer).unwrap();
         }
     });
 

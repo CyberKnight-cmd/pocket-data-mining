@@ -29,6 +29,11 @@ use crate::types::{ItemId, Utility};
 
 const SEGMENT: usize = 1 << 20;
 
+/// Segment size: 1 MB, smaller under tiny budgets (a scan pins one segment at a time).
+fn segment_bytes(guard: &MemoryGuard) -> usize {
+    (guard.budget() / 64).clamp(4 * 1024, SEGMENT)
+}
+
 enum Seg {
     Mem(Vec<u8>, Reservation),
     Disk(OwnedPage),
@@ -48,6 +53,7 @@ struct TxDbWriter<'a> {
     db: TxDb,
     cur: Vec<u8>,
     cur_res: Reservation,
+    seg: usize,
     /// Offset of the last record in `cur` (for merging identical consecutive transactions).
     last: Option<usize>,
     pub merged: u64,
@@ -56,7 +62,7 @@ struct TxDbWriter<'a> {
 impl<'a> TxDbWriter<'a> {
     fn new(pool: &'a Arc<BufferPool>, guard: &'a Arc<MemoryGuard>) -> Self {
         Self { pool, guard, db: TxDb { segs: Vec::new(), ntx: 0, bytes: 0 }, cur: Vec::new(),
-               cur_res: guard.reserve_force(0), last: None, merged: 0 }
+               cur_res: guard.reserve_force(0), last: None, merged: 0, seg: segment_bytes(guard) }
     }
 
     fn push(&mut self, items: &[u32], utils: &[Utility], pu: Utility) -> io::Result<()> {
@@ -81,7 +87,7 @@ impl<'a> TxDbWriter<'a> {
                 }
             }
         }
-        if !self.cur.is_empty() && self.cur.len() + 12 + 12 * items.len() > SEGMENT {
+        if !self.cur.is_empty() && self.cur.len() + 12 + 12 * items.len() > self.seg {
             self.seal()?;
         }
         self.last = Some(self.cur.len());
@@ -274,6 +280,16 @@ pub fn run_efim(cfg: EfimConfig, source: DataSource, ctx: &mut MiningContext) ->
     }
     let m = orig.len();
     let _maps = ctx.guard.reserve_force(m * (4 + 24) + m * 4);
+
+    // Admission control. Fixed: renaming maps, su/proj-size arrays. Per worker: utility bins
+    // (2 x m), a pinned input segment and an output segment per projection level in progress.
+    {
+        let estimate = |b: usize| -> (usize, usize) {
+            let seg = (b / 64).clamp(4 * 1024, SEGMENT); // same rule as segment_bytes
+            (m * (4 + 24 + 4 + 16), m * 16 + 4 * seg)
+        };
+        ctx.admit(cfg.name, &estimate)?;
+    }
 
     ctx.progress.set_stage(&format!("{}: Pass 2 (renamed database, su of items)", cfg.name));
     let mut su0 = vec![0 as Utility; m];

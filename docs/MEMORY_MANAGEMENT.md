@@ -14,9 +14,10 @@ disk only when it does not. Results must be identical at every budget.
 | Buffer-pool frames (data + `FRAME_OVERHEAD` per frame) | the pool charges the ledger when attached (`BufferPool::attach_guard`) |
 | Process baseline (binary, libraries) | charged once at startup from `VmRSS` |
 
-`main.rs` gives the ledger `budget - margin`, where the margin (8 MB + 12% of the budget, capped
-at 128 MB) covers what the ledger cannot see: allocator metadata/fragmentation, I/O buffers and
-thread stacks. Measured: process peak RSS stays within the user's budget.
+`main.rs` gives the ledger `ledger_for_budget(budget)` = budget minus a margin of 7 MB + 3%
+(capped at 128 MB and at half the budget) for what the ledger cannot see: allocator metadata and
+fragmentation, I/O buffers, thread stacks. Calibrated on chainstore/FHM with streaming joins: peak
+RSS exceeds the peak ledger by ~6.5 MB at 24-64 MB budgets and ~30 MB at 1 GB.
 
 ### 2.1 Reservations instead of `try_alloc`/`free` pairs
 `guard.reserve(n)` returns `Option<Reservation>`; the bytes are released when the reservation is
@@ -33,6 +34,25 @@ Cached pool pages are copies of spilled data and can be reloaded; active native 
 cannot. When a native reservation fails, the ledger asks the pool (its *reclaimer*) to evict
 cached pages first. Without this, a pool that cached early spills starved the native side and
 forced pathological spilling (one run per pushed entry).
+
+## 2.3 Constant-memory joins
+Utility-list bodies longer than one chunk (4,096 entries = 80 KB, smaller under tiny budgets) are
+stored as a sequence of chunks (`UlBody::Chunked`). Joins stream: `BodyCursor`s read the prefix,
+P·x and P·y lists one chunk at a time and a `BodyWriter` emits the result chunk by chunk, so a
+join's working set is about four chunks whatever the list lengths. The 1-itemset list builder
+streams spilled runs (written in bounded record pieces) straight into chunk writers.
+
+## 2.4 Admission control (`MiningContext::admit`)
+Before mining, the utility-list and EFIM engines estimate what cannot be spilled: a fixed part
+(per-item headers and maps, builder buffers, output queue) and a per-worker part (join chunks,
+spill page, extension headers / utility bins). Admission then
+* refuses the run up front, with the smallest workable budget, if even one worker does not fit
+  (e.g. chainstore/FHM: "Use at least -b 19"; 19 MB then runs exactly with a 15.4 MB peak);
+* lowers the thread count until the per-worker sets use at most half of what is free.
+Below that floor the process would otherwise exceed its budget (or be killed by a kernel limit).
+
+The practical floor is dominated by the process itself (~5 MB resident before any work) and the
+margin; on chainstore the unspillable mining state is under 3 MB.
 
 ## 3. Buffer pool (`src/buffer_pool/pool.rs`)
 * Charges the shared ledger; if it cannot make room (everything pinned or the budget held by
