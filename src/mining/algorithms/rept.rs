@@ -4,7 +4,9 @@ use crate::mining::{
     core::{algorithm::HuimAlgorithm, context::MiningContext, data_source::DataSource},
 };
 
-/// REPT: Top-K utility-list mining (threshold pre-evaluation follows with the Top-K family).
+/// REPT (Ryang & Yun, 2015): Top-K utility-list mining that raises the threshold *before*
+/// the search: the K-th best exact utility among all 1- and 2-itemsets is a valid lower bound
+/// on the K-th best overall (pre-evaluation), so mining starts there instead of at 0.
 /// Runs on the shared budget-aware engine in `components::ul_engine`.
 pub struct Rept {
     enable_prefetch: bool,
@@ -27,6 +29,7 @@ impl HuimAlgorithm for Rept {
             use_eucs: true,
             length_constraints: false,
             enable_prefetch: self.enable_prefetch,
+            topk_seed: true,
             ..Default::default()
         };
         run_ul_miner(cfg, source, ctx)
