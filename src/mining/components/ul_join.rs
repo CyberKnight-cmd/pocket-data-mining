@@ -31,14 +31,25 @@ pub fn deserialize_ul_body(bytes: &[u8]) -> Vec<ULEntry> {
 
 /// Lists at least this large get a page of their own; smaller ones are packed.
 const OWN_PAGE_BYTES: usize = 64 * 1024;
-/// Size of one packed spill page.
+/// Size of one packed spill page (at most; smaller under tiny budgets).
 const ARENA_PAGE_BYTES: usize = 256 * 1024;
+
+/// Entries per chunk of a chunked body (80 KB), scaled down under tiny budgets so the
+/// per-join working set (a few chunks) stays a small fraction of the budget.
+pub fn chunk_entries(guard: &MemoryGuard) -> usize {
+    (guard.budget() / 256 / 20).clamp(64, 4096)
+}
+
+fn arena_page_bytes(guard: &MemoryGuard) -> usize {
+    (guard.budget() / 64).clamp(4 * 1024, ARENA_PAGE_BYTES)
+}
 
 /// Packs small spilled lists into shared pages so a memory-starved search does not
 /// create one file (and one pool frame) per tiny list. Single-threaded: create one per
 /// task / thread. A packed page is discarded once every list stored in it is dropped.
 pub struct SpillArena {
     pool: Arc<BufferPool>,
+    page_bytes: usize,
     inner: std::cell::RefCell<ArenaInner>,
 }
 
@@ -50,12 +61,14 @@ struct ArenaInner {
 
 impl SpillArena {
     pub fn new(pool: &Arc<BufferPool>, guard: &Arc<MemoryGuard>) -> Self {
+        let page_bytes = arena_page_bytes(guard);
         Self {
             pool: Arc::clone(pool),
+            page_bytes,
             inner: std::cell::RefCell::new(ArenaInner {
                 slot: None,
                 buf: Vec::new(),
-                _res: guard.reserve_force(ARENA_PAGE_BYTES),
+                _res: guard.reserve_force(page_bytes),
             }),
         }
     }
@@ -63,10 +76,10 @@ impl SpillArena {
     fn append(&self, entries: &[ULEntry]) -> io::Result<UlBody> {
         let bytes = entries.len() * 20;
         let mut inner = self.inner.borrow_mut();
-        if inner.slot.is_none() || inner.buf.len() + bytes > ARENA_PAGE_BYTES {
+        if inner.slot.is_none() || inner.buf.len() + bytes > self.page_bytes {
             Self::flush_inner(&self.pool, &mut inner)?;
             inner.slot = Some(Arc::new(OwnedPage::reserve_id(&self.pool)));
-            inner.buf = Vec::with_capacity(ARENA_PAGE_BYTES);
+            inner.buf = Vec::with_capacity(self.page_bytes.max(bytes));
         }
         let offset = inner.buf.len() as u32;
         inner.buf.extend_from_slice(&serialize_ul_body(entries));
@@ -118,11 +131,21 @@ impl<'a> BodyAlloc<'a> {
         Self { arena: Some(arena), ..self }
     }
 
-    /// Store entries that must go to the pool (no RAM reservation).
+    /// Store entries that must go to the pool (no RAM reservation). Lists longer than one
+    /// chunk become a chunked body, so no single page (and no single pin) grows with the data.
     pub fn spill_body(&self, entries: &[ULEntry]) -> io::Result<UlBody> {
+        let chunk = chunk_entries(self.guard);
+        if entries.len() > chunk {
+            let parts = entries.chunks(chunk).map(|c| self.spill_one(c)).collect::<io::Result<Vec<_>>>()?;
+            return Ok(UlBody::Chunked(parts));
+        }
+        self.spill_one(entries)
+    }
+
+    fn spill_one(&self, entries: &[ULEntry]) -> io::Result<UlBody> {
         let bytes = entries.len() * 20;
         match self.arena {
-            Some(arena) if bytes < OWN_PAGE_BYTES => arena.append(entries),
+            Some(arena) if bytes < OWN_PAGE_BYTES.min(arena.page_bytes / 2) => arena.append(entries),
             _ => Ok(UlBody::OnDisk(OwnedPage::create(self.pool, serialize_ul_body(entries))?)),
         }
     }
@@ -157,6 +180,19 @@ impl<'a> BodyAlloc<'a> {
                 let pin = slot.pin()?;
                 Ok(BodyView::pinned(pin, *offset as usize, *count as usize, self.guard))
             }
+            UlBody::Chunked(_) => {
+                // Contiguous access to a chunked body needs a copy; the utility-list engine
+                // streams chunks instead (see `BodyCursor`), this is for other callers.
+                let n = body.len(*self)?;
+                let r = self.guard.reserve_force(vec_bytes::<ULEntry>(n));
+                let mut v = Vec::with_capacity(n);
+                let mut c = BodyCursor::new(*self, body);
+                while let Some(e) = c.head()? {
+                    v.push(e);
+                    c.advance();
+                }
+                Ok(BodyView::Loaded(v, r))
+            }
         }
     }
 }
@@ -171,6 +207,8 @@ pub enum UlBody {
     OnDisk(OwnedPage),
     /// Stored inside a shared packed page (see `SpillArena`).
     Packed { slot: Arc<OwnedPage>, offset: u32, count: u32 },
+    /// A long list stored as consecutive chunks (each one of the variants above).
+    Chunked(Vec<UlBody>),
 }
 
 impl UlBody {
@@ -179,8 +217,183 @@ impl UlBody {
             UlBody::InMemory(..) => 0,
             UlBody::OnDisk(p) => p.id,
             UlBody::Packed { slot, .. } => slot.id,
+            UlBody::Chunked(parts) => parts.first().map_or(0, |p| p.page_id()),
         }
     }
+
+    /// Number of entries.
+    pub fn len(&self, alloc: BodyAlloc) -> io::Result<usize> {
+        Ok(match self {
+            UlBody::InMemory(v, _) => v.len(),
+            UlBody::Packed { count, .. } => *count as usize,
+            UlBody::OnDisk(_) => alloc.view(self)?.len(),
+            UlBody::Chunked(parts) => {
+                let mut n = 0;
+                for p in parts { n += p.len(alloc)?; }
+                n
+            }
+        })
+    }
+
+    /// TID of the last entry (entries are in ascending TID order).
+    pub fn last_tid(&self, alloc: BodyAlloc) -> io::Result<Option<u32>> {
+        match self {
+            UlBody::Chunked(parts) => match parts.last() { Some(p) => p.last_tid(alloc), None => Ok(None) },
+            _ => Ok(alloc.view(self)?.last().map(|e| { let t = e.tid; t })),
+        }
+    }
+}
+
+/// Sequential reader over a body, one chunk in memory (or pinned) at a time.
+pub struct BodyCursor<'a> {
+    alloc: BodyAlloc<'a>,
+    parts: SmallVec<[&'a UlBody; 1]>,
+    next_part: usize,
+    cur: Option<BodyView<'a>>,
+    pos: usize,
+}
+
+impl<'a> BodyCursor<'a> {
+    pub fn new(alloc: BodyAlloc<'a>, body: &'a UlBody) -> Self {
+        let parts: SmallVec<[&'a UlBody; 1]> = match body {
+            UlBody::Chunked(ps) => ps.iter().collect(),
+            other => smallvec::smallvec![other],
+        };
+        Self { alloc, parts, next_part: 0, cur: None, pos: 0 }
+    }
+
+    /// Current entry (None at the end).
+    #[inline]
+    pub fn head(&mut self) -> io::Result<Option<ULEntry>> {
+        loop {
+            if let Some(v) = &self.cur {
+                if self.pos < v.len() { return Ok(Some(v[self.pos])); }
+            }
+            if self.next_part >= self.parts.len() { return Ok(None); }
+            self.cur = None; // unpin the previous chunk before pinning the next one
+            self.cur = Some(self.alloc.view(self.parts[self.next_part])?);
+            self.next_part += 1;
+            self.pos = 0;
+        }
+    }
+
+    #[inline]
+    pub fn advance(&mut self) { self.pos += 1; }
+}
+
+/// Builds a body chunk by chunk: each full chunk is kept in RAM if the budget allows,
+/// otherwise spilled. Memory held by the writer itself is one chunk.
+pub struct BodyWriter<'a> {
+    alloc: BodyAlloc<'a>,
+    chunk: usize,
+    buf: Vec<ULEntry>,
+    parts: Vec<UlBody>,
+    /// Write chunks straight to the pool (used for lists we already know will not fit).
+    prefer_disk: bool,
+    pub len: u32,
+    pub sum_iutils: Utility,
+    pub sum_rutils: Utility,
+    _res: Reservation,
+}
+
+impl<'a> BodyWriter<'a> {
+    pub fn new(alloc: BodyAlloc<'a>, prefer_disk: bool) -> Self {
+        let chunk = chunk_entries(alloc.guard);
+        Self { alloc, chunk, buf: Vec::new(), parts: Vec::new(), prefer_disk, len: 0, sum_iutils: 0, sum_rutils: 0,
+               _res: alloc.guard.reserve_force(vec_bytes::<ULEntry>(chunk)) }
+    }
+
+    #[inline]
+    pub fn push(&mut self, e: ULEntry) -> io::Result<()> {
+        if self.buf.capacity() == 0 { self.buf.reserve_exact(self.chunk); }
+        self.sum_iutils += e.iutils;
+        self.sum_rutils += e.rutils;
+        self.len += 1;
+        self.buf.push(e);
+        if self.buf.len() >= self.chunk { self.flush_part()?; }
+        Ok(())
+    }
+
+    fn flush_part(&mut self) -> io::Result<()> {
+        if self.buf.is_empty() { return Ok(()); }
+        let entries = std::mem::take(&mut self.buf);
+        let part = if self.prefer_disk { self.alloc.spill_body(&entries)? } else { self.alloc.make_body(entries)? };
+        self.parts.push(part);
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> io::Result<UlBody> {
+        self.flush_part()?;
+        Ok(match self.parts.len() {
+            0 => UlBody::InMemory(Vec::new(), None),
+            1 => self.parts.pop().unwrap(),
+            _ => UlBody::Chunked(std::mem::take(&mut self.parts)),
+        })
+    }
+}
+
+/// Streaming utility-list join: P·x·y from the bodies of P (None for the empty prefix), P·x
+/// and P·y. Reads one chunk of each input at a time and writes the result chunk by chunk,
+/// so the working set is a constant few chunks regardless of list lengths.
+/// Same semantics as `join_utility_lists_la` (including LA-prune).
+pub fn join_bodies(
+    itemset: SmallVec<[ItemId; 8]>,
+    prefix: Option<&UlBody>,
+    px: &UlBody,
+    py: &UlBody,
+    alloc: BodyAlloc,
+    la: Option<LaPrune>,
+) -> io::Result<Option<(UtilityList, UlBody)>> {
+    let mut bound = la.map_or(0, |l| l.start);
+    let lose = |e: &ULEntry| -> Utility {
+        match la { Some(l) if l.average => e.rutils, Some(_) => e.iutils + e.rutils, None => 0 }
+    };
+    let mut cx = BodyCursor::new(alloc, px);
+    let mut cy = BodyCursor::new(alloc, py);
+    let mut cp = prefix.map(|p| BodyCursor::new(alloc, p));
+    let mut w = BodyWriter::new(alloc, false);
+    loop {
+        let (Some(ex), Some(ey)) = (cx.head()?, cy.head()?) else { break };
+        let (tx, ty) = (ex.tid, ey.tid);
+        if tx < ty {
+            if let Some(l) = la {
+                bound -= lose(&ex);
+                if bound < l.threshold { return Ok(None); }
+            }
+            cx.advance();
+            continue;
+        }
+        if tx > ty {
+            cy.advance();
+            continue;
+        }
+        let mut prefix_iutils = 0;
+        if let Some(c) = cp.as_mut() {
+            while let Some(e) = c.head()? {
+                let t = e.tid;
+                if t < tx { c.advance(); continue; }
+                if t == tx { prefix_iutils = e.iutils; }
+                break;
+            }
+        }
+        w.push(ULEntry { tid: tx, iutils: ex.iutils + ey.iutils - prefix_iutils, rutils: ey.rutils })?;
+        cx.advance();
+        cy.advance();
+    }
+    drop((cx, cy, cp));
+    let (len, sum_iutils, sum_rutils) = (w.len, w.sum_iutils, w.sum_rutils);
+    let body = w.finish()?;
+    let page_id = body.page_id();
+    let ul = UtilityList {
+        itemset,
+        sum_iutils,
+        sum_rutils,
+        len,
+        page_id,
+        resident: true,
+        recompute: if page_id == 0 { RecomputeFlag::Recomputable } else { RecomputeFlag::Materialized },
+    };
+    Ok(Some((ul, body)))
 }
 
 /// Borrowed, pinned-in-place, or temporarily loaded body entries.

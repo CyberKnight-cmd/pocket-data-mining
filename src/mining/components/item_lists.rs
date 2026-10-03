@@ -12,13 +12,18 @@ use std::sync::Arc;
 use crate::buffer_pool::pool::OwnedPage;
 use crate::mining::core::memory_guard::{Reservation, vec_bytes, map_bytes};
 use crate::types::{ItemId, Utility, ULEntry, UtilityList, RecomputeFlag};
-use super::ul_join::{BodyAlloc, SpillArena, UlBody, serialize_ul_body, deserialize_ul_body};
+use super::ul_join::{BodyAlloc, BodyWriter, SpillArena, UlBody, serialize_ul_body};
 
 /// Target size of one spill segment.
 const SEGMENT_BYTES: usize = 1 << 20;
 /// Never spill less than this (unless the whole limit is smaller): tiny runs cost more
 /// in metadata and merge cursors than they free.
 const MIN_SPILL_BYTES: usize = 4 << 20;
+
+/// Spill segment size: 1 MB, smaller under tiny budgets.
+fn segment_bytes(alloc: BodyAlloc) -> usize {
+    (alloc.guard.budget() / 32).clamp(4 * 1024, SEGMENT_BYTES)
+}
 const RECORD_HEADER: usize = 8; // item u32 + count u32
 
 /// One spilled run: segments of `[item][count][entries..]` records, items ascending.
@@ -85,17 +90,23 @@ impl<'a> ItemListBuilder<'a> {
         items.sort_unstable_by_key(|(i, _)| *i);
 
         let mut run = Run { segments: Vec::new() };
-        let _seg_res = self.alloc.guard.reserve_force(SEGMENT_BYTES * 2);
-        let mut seg: Vec<u8> = Vec::with_capacity(SEGMENT_BYTES);
+        // Segments (and the record pieces inside them) are bounded, so reading a run back
+        // later pins at most one bounded segment at a time — whatever the item sizes.
+        let seg_bytes = segment_bytes(self.alloc);
+        let piece = (seg_bytes / 20).max(1);
+        let _seg_res = self.alloc.guard.reserve_force(seg_bytes * 2);
+        let mut seg: Vec<u8> = Vec::with_capacity(seg_bytes);
         for (item, entries) in items {
-            seg.extend_from_slice(&item.to_le_bytes());
-            seg.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-            seg.extend_from_slice(&serialize_ul_body(&entries));
-            drop(entries);
-            if seg.len() >= SEGMENT_BYTES {
-                run.segments.push(OwnedPage::create(self.alloc.pool, std::mem::take(&mut seg))?);
-                seg = Vec::with_capacity(SEGMENT_BYTES);
+            for part in entries.chunks(piece) {
+                seg.extend_from_slice(&item.to_le_bytes());
+                seg.extend_from_slice(&(part.len() as u32).to_le_bytes());
+                seg.extend_from_slice(&serialize_ul_body(part));
+                if seg.len() >= seg_bytes {
+                    run.segments.push(OwnedPage::create(self.alloc.pool, std::mem::take(&mut seg))?);
+                    seg = Vec::with_capacity(seg_bytes);
+                }
             }
+            drop(entries);
         }
         if !seg.is_empty() {
             run.segments.push(OwnedPage::create(self.alloc.pool, seg)?);
@@ -137,29 +148,18 @@ impl<'a> ItemListBuilder<'a> {
             let tail = self.bufs.remove(&item).unwrap_or_default();
             let tail_bytes = vec_bytes::<ULEntry>(tail.capacity());
 
-            let entries = if cursors.is_empty() {
-                tail
-            } else {
-                let _r = self.alloc.guard.reserve_force(vec_bytes::<ULEntry>(count));
-                let mut all = Vec::with_capacity(count);
-                for c in cursors.iter_mut() {
-                    c.take_item(item, &mut all)?;
-                }
-                all.extend_from_slice(&tail);
-                all
-            };
-            // The tail's bytes move from the builder's reservation to the body's.
+            // Stream the item's entries (spilled runs in order, then the in-RAM tail) into a
+            // chunk writer: the whole list is never held in one buffer.
+            let mut w = BodyWriter::new(packer, count as u64 > ram_max_len);
+            for c in cursors.iter_mut() {
+                c.take_item(item, &mut |e| w.push(e))?;
+            }
+            for e in &tail { w.push(*e)?; }
+            drop(tail);
+            // The tail's bytes are now owned by the body (re-reserved per chunk).
             self.res.shrink(tail_bytes);
-
-            let sum_iutils: Utility = entries.iter().map(|e| e.iutils).sum();
-            let sum_rutils: Utility = entries.iter().map(|e| e.rutils).sum();
-            let len = entries.len() as u32;
-
-            let body = if (len as u64) <= ram_max_len {
-                packer.make_body(entries)?
-            } else {
-                packer.spill_body(&entries)?
-            };
+            let (len, sum_iutils, sum_rutils) = (w.len, w.sum_iutils, w.sum_rutils);
+            let body = w.finish()?;
             let ul = UtilityList {
                 itemset: smallvec::smallvec![item],
                 sum_iutils,
@@ -205,23 +205,31 @@ impl RunCursor {
         Ok(())
     }
 
-    /// If the next record is `item`, append its entries to `out`.
-    fn take_item(&mut self, item: ItemId, out: &mut Vec<ULEntry>) -> io::Result<()> {
-        let Some(page) = &self.cur else { return Ok(()) };
-        let pin = page.pin()?;
-        if self.pos + RECORD_HEADER > pin.len() { return Ok(()); }
-        let rec_item = u32::from_le_bytes(pin[self.pos..self.pos + 4].try_into().unwrap());
-        if rec_item != item { return Ok(()); }
-        let count = u32::from_le_bytes(pin[self.pos + 4..self.pos + 8].try_into().unwrap()) as usize;
-        let start = self.pos + RECORD_HEADER;
-        let end = start + count * 20;
-        out.extend(deserialize_ul_body(&pin[start..end]));
-        self.pos = end;
-        drop(pin);
-        if self.pos >= self.len {
-            self.advance_segment()?;
+    /// Feed every record piece of `item` at the cursor position (possibly spanning several
+    /// segments) to `f`, one entry at a time.
+    fn take_item(&mut self, item: ItemId, f: &mut dyn FnMut(ULEntry) -> io::Result<()>) -> io::Result<()> {
+        loop {
+            let Some(page) = &self.cur else { return Ok(()) };
+            let pin = page.pin()?;
+            if self.pos + RECORD_HEADER > pin.len() { return Ok(()); }
+            let rec_item = u32::from_le_bytes(pin[self.pos..self.pos + 4].try_into().unwrap());
+            if rec_item != item { return Ok(()); }
+            let count = u32::from_le_bytes(pin[self.pos + 4..self.pos + 8].try_into().unwrap()) as usize;
+            let start = self.pos + RECORD_HEADER;
+            for k in 0..count {
+                let b = &pin[start + 20 * k..start + 20 * k + 20];
+                f(ULEntry {
+                    tid: u32::from_le_bytes(b[0..4].try_into().unwrap()),
+                    iutils: i64::from_le_bytes(b[4..12].try_into().unwrap()),
+                    rutils: i64::from_le_bytes(b[12..20].try_into().unwrap()),
+                })?;
+            }
+            self.pos = start + count * 20;
+            drop(pin);
+            if self.pos >= self.len {
+                self.advance_segment()?;
+            }
         }
-        Ok(())
     }
 }
 
