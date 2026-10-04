@@ -277,7 +277,7 @@ pub fn tune_allocator_for_budget() {
     unsafe {
         libc::mallopt(libc::M_ARENA_MAX, std::env::var("AIR_HUIM_MALLOC_ARENAS").ok().and_then(|v| v.parse().ok()).unwrap_or(1));
         libc::mallopt(libc::M_TRIM_THRESHOLD, 128 * 1024);
-        libc::mallopt(libc::M_MMAP_THRESHOLD, 256 * 1024);
+        libc::mallopt(libc::M_MMAP_THRESHOLD, std::env::var("AIR_HUIM_MMAP_THRESHOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(256 * 1024));
     }
 }
 
@@ -287,6 +287,23 @@ pub fn release_free_memory() {
     unsafe {
         libc::malloc_trim(0);
     }
+}
+
+/// Background heap trimmer. With several threads sharing one malloc arena, long-lived blocks
+/// (cached pages, in-RAM lists) interleave with short-lived join buffers; the freed holes stay
+/// resident because glibc only returns the top of the heap on `free`. Every 250 ms, if the
+/// process RSS exceeds the ledger by more than max(8 MB, budget / 10), `malloc_trim(0)`
+/// returns free pages from anywhere in the heap. Stops when `done` is set.
+pub fn spawn_heap_trimmer(guard: Arc<MemoryGuard>, done: Arc<std::sync::atomic::AtomicBool>) {
+    std::thread::spawn(move || {
+        while !done.load(std::sync::atomic::Ordering::Relaxed) {
+            let slack = (8usize << 20).max(guard.budget() / 10);
+            if current_rss_bytes() > guard.used() + slack {
+                release_free_memory();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    });
 }
 
 /// Resident set size of this process in bytes (Linux: /proc/self/status VmRSS).
