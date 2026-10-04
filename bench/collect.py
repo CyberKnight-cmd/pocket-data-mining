@@ -202,6 +202,7 @@ def run_job(job, cfg, data_dir, refs):
     env0 = env_snapshot()
     cmd, outp = build_cmd(job, d, cfg)
     env = dict(os.environ, AIR_HUIM_MEMLOG="1", AIR_HUIM_MEMLOG_MS="250")
+    env.update(job.get("env", {}))  # per-job settings (e.g. AIR_HUIM_REMAT); part of the job ID
     log = open(os.path.join(d, "stdout.log"), "wb")
     ts = open(os.path.join(d, "ts.csv"), "w")
     cols = ["t", "VmRSS", "VmHWM", "VmSize", "utime", "stime", "minflt", "majflt", "read_bytes", "write_bytes",

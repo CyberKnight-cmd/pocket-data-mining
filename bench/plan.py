@@ -42,7 +42,8 @@ CODE = {
 }
 PENDING = set()
 # r2: constant-memory (streaming) joins, admission control, margin 7 MB + 3%.
-RUNTIME = "r2"
+# r3: cost-based rematerialisation (AIR_HUIM_REMAT=auto by default) in the utility-list engine.
+RUNTIME = "r3"
 HEURISTIC = {"huim-ga", "huim-bpso", "mhui-aco"}
 
 SPMF = {  # air algo -> (SPMF name, args(min_util, k))
@@ -219,6 +220,16 @@ def main():
                 J(experiment="cgroup", impl="spmf", algo=algo, dataset=ds, budget_mb=b, cap_s=900, limit="cgroup",
                   priority=250 + order.index(ds), spmf_name=sname,
                   spmf_args=args(datasets[ds]["min_util"], K), code_version="spmf")
+    # Rematerialisation: recompute dropped utility lists vs spill them (SD-card writes). The
+    # default (auto) runs carry no env, so they share IDs with any identical run elsewhere.
+    for ds in ["chainstore", "retail", "kosarak", "accidents"]:
+        for b in [24, 32, 48, 64]:
+            for algo in ["fhm", "hui-miner", "hup-miner", "incfhm", "tko"]:
+                topk = {"k": K} if algo == "tko" else {}
+                for remat in ("auto", "off"):
+                    extra = {} if remat == "auto" else {"env": {"AIR_HUIM_REMAT": remat}}
+                    J(experiment="remat", impl="air", algo=algo, dataset=ds, budget_mb=b, cap_s=1800,
+                      priority=300 + order.index(ds), **topk, **extra)
     # Thread scaling.
     for ds in ["chainstore", "kosarak", "accidents"]:
         for t in [1, 2, 4]:
