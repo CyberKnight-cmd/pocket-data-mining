@@ -191,6 +191,13 @@ def build_cmd(job, d, cfg):
     return cmd, out
 
 
+def mem_available():
+    for line in open("/proc/meminfo"):
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) * 1024
+    return 0
+
+
 def run_job(job, cfg, data_dir, refs):
     jid = job["id"]
     d = os.path.join(data_dir, "runs", jid)
@@ -370,6 +377,14 @@ def main():
         if free < MIN_FREE:
             print(f"Stopping: only {free >> 30} GB free on disk (< {MIN_FREE >> 30} GB)", flush=True)
             break
+        # A budget the machine cannot currently give (another program holds the RAM) is not a
+        # result: skip without recording, so a later pass runs it. (Done runs return early.)
+        need = (job.get("budget_mb") or 0) * 1048576 + (1 << 30)
+        if job.get("budget_mb") and not os.path.exists(os.path.join(args.data, "runs", job["id"], "result.json")) \
+                and mem_available() < need:
+            print(f"[{i + 1}/{len(jobs)}] skipped: {mem_available() >> 20} MB available < "
+                  f"{need >> 20} MB needed for b={job['budget_mb']}", flush=True)
+            continue
         res = run_job(job, cfg, args.data, refs)
         if res:
             print(f"[{i + 1}/{len(jobs)}] {job['experiment']:10} {job['dataset']:14} {job['impl']:12} {job['algo']:15} "
