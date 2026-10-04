@@ -7,20 +7,31 @@
 
 use std::io;
 use std::sync::Arc;
+use crate::mining::core::memory_guard::{MemoryGuard, Reservation};
 use crate::storage::{chunk_store::ChunkStore, page_layout::PageFlags};
 use crate::types::{ItemId, PageId, Utility};
 
-const SEGMENT_BYTES: usize = 1 << 20;
+/// Segment size for on-disk spools: 1/32 of the budget, 1 KB to 1 MB. The write buffer and
+/// each scanning thread's read buffer hold one segment (accounted to the ledger).
+pub fn spool_segment_bytes(guard: &MemoryGuard) -> usize {
+    (guard.budget() / 32).clamp(1024, 1 << 20)
+}
 
 pub struct TxSpool {
     store: Arc<dyn ChunkStore + Send + Sync>,
+    guard: Arc<MemoryGuard>,
     pages: Vec<PageId>,
     buf: Vec<u8>,
+    segment: usize,
+    _buf_res: Option<Reservation>,
 }
 
 impl TxSpool {
-    pub fn new(store: Arc<dyn ChunkStore + Send + Sync>) -> Self {
-        Self { store, pages: Vec::new(), buf: Vec::with_capacity(SEGMENT_BYTES) }
+    pub fn new(store: Arc<dyn ChunkStore + Send + Sync>, guard: &Arc<MemoryGuard>) -> Self {
+        let segment = spool_segment_bytes(guard);
+        // A transaction may overrun the segment once before it is flushed.
+        let res = guard.reserve_force(2 * segment);
+        Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::with_capacity(segment), segment, _buf_res: Some(res) }
     }
 
     /// Append one transaction: items with their utilities, and the transaction utility.
@@ -31,7 +42,7 @@ impl TxSpool {
             self.buf.extend_from_slice(&item.to_le_bytes());
             self.buf.extend_from_slice(&u.to_le_bytes());
         }
-        if self.buf.len() >= SEGMENT_BYTES {
+        if self.buf.len() >= self.segment {
             self.flush()?;
         }
         Ok(())
@@ -50,11 +61,13 @@ impl TxSpool {
     pub fn seal(&mut self) -> io::Result<()> {
         self.flush()?;
         self.buf = Vec::new();
+        self._buf_res = None;
         Ok(())
     }
 
     /// Replay all transactions in order. `f(items, utilities, tu)` returns false to stop.
     pub fn scan(&self, mut f: impl FnMut(&[ItemId], &[Utility], Utility) -> bool) -> io::Result<()> {
+        let _page_res = self.guard.reserve_force(2 * self.segment);
         let mut page = Vec::new();
         let mut items: Vec<ItemId> = Vec::new();
         let mut utils: Vec<Utility> = Vec::new();

@@ -406,12 +406,16 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         let n = twu.twu.len().max(1);
         let ext_b = std::mem::size_of::<Ext>() + cfg.pu_partitions * 8;
         let multi = ctx.threads > 1;
+        // The binary DB copy for EUCS / pair scans: write buffer + one read buffer (2 segments each).
+        let spool = cfg.use_eucs || cfg.cooccur_filter || (cfg.topk_seed && ctx.k.is_some());
         // Same size rules as ul_join::chunk_entries, arena pages, builder segments, output queue.
         let estimate = |b: usize| -> (usize, usize) {
             let chunk_b = (b / 256 / 20).clamp(64, 4096) * 20;
             let queue = if multi { (b / 64).clamp(64 * 96, 100_000 * 96) } else { 0 };
+            let seg = (b / 32).clamp(4 * 1024, 1 << 20); // list builder segments
+            let spool_seg = (b / 32).clamp(1024, 1 << 20); // tx_spool::spool_segment_bytes
             let fixed = n * (std::mem::size_of::<(ItemId, UtilityList, UlBody)>() + 96)
-                + 2 * (b / 32).clamp(4 * 1024, 1 << 20) + queue;
+                + 2 * seg + if spool { 4 * spool_seg } else { 0 } + queue;
             let per_thread = 4 * chunk_b + (b / 64).clamp(4 * 1024, 256 * 1024) + 2 * n.min(4096) * ext_b;
             (fixed, per_thread)
         };
@@ -448,7 +452,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
     // Binary copy of the filtered DB for the EUCS partition scans (disk, not RAM).
     let seed = cfg.topk_seed && top_k.is_some();
     let pairs_needed = cfg.use_eucs || cfg.cooccur_filter || seed;
-    let mut spool = pairs_needed.then(|| super::tx_spool::TxSpool::new(Arc::clone(&ctx.store)));
+    let mut spool = pairs_needed.then(|| super::tx_spool::TxSpool::new(Arc::clone(&ctx.store), &ctx.guard));
     let mut spool_row: Vec<(ItemId, Utility)> = Vec::new();
 
     let db_reader2 = DbReader::new(BufReader::new(File::open(&dataset_path)?));

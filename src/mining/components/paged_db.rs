@@ -15,7 +15,11 @@ use crate::buffer_pool::{frame::PinGuard, pool::{BufferPool, OwnedPage}};
 use crate::mining::core::memory_guard::{MemoryGuard, Reservation};
 use crate::types::{ItemId, Utility};
 
-const SEGMENT_BYTES: usize = 256 * 1024;
+/// Segment size: 1/64 of the budget, 4 KB to 256 KB. A reader pins one segment at a time;
+/// the builder holds one open segment (twice, while copying it out).
+pub fn segment_bytes_for(budget: usize) -> usize {
+    (budget / 64).clamp(4 * 1024, 256 * 1024)
+}
 
 enum SegData {
     Mem(Vec<u8>, Reservation),
@@ -40,6 +44,7 @@ pub struct PagedDbBuilder<'a> {
     items: Vec<ItemId>,
     utils: Vec<Utility>,
     rem: Vec<Utility>,
+    segment: usize,
     _scratch: Reservation,
 }
 
@@ -53,7 +58,8 @@ impl<'a> PagedDbBuilder<'a> {
             items: Vec::new(),
             utils: Vec::new(),
             rem: Vec::new(),
-            _scratch: guard.reserve_force(2 * SEGMENT_BYTES),
+            segment: segment_bytes_for(guard.budget()),
+            _scratch: guard.reserve_force(2 * segment_bytes_for(guard.budget())),
         }
     }
 
@@ -69,7 +75,7 @@ impl<'a> PagedDbBuilder<'a> {
         }
         self.offsets.push(self.items.len() as u32);
         self.db.n_tx += 1;
-        if self.cur_bytes() >= SEGMENT_BYTES {
+        if self.cur_bytes() >= self.segment {
             self.seal_segment()?;
         }
         Ok(idx)

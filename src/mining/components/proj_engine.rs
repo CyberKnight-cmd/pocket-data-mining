@@ -189,12 +189,34 @@ pub fn run_proj_miner(cfg: ProjMinerConfig, source: DataSource, ctx: &mut Mining
 
     ctx.progress.set_stage(&format!("{}: Pass 1 (TWU)", cfg.name));
     let reader = DbReader::new(BufReader::new(File::open(&path)?));
-    let twu = TwuFilter::new(min).compute(reader.filter_map(Result::ok));
+    // Support of every item (= its first-level projection size), counted in the same pass.
+    let mut count: HashMap<ItemId, u64> = HashMap::new();
+    let twu = TwuFilter::new(min).compute(reader.filter_map(Result::ok).inspect(|tx| {
+        for e in &tx.items { *count.entry(e.item).or_insert(0) += 1; }
+    }));
+    count.retain(|i, _| twu.passes(*i));
 
-    // Pass 2: build the paged DB; count occurrences and root subtree utility per item.
+    // Admission control, before pass 2 fills free memory with data that could spill. Fixed:
+    // per-item maps (counts, TWU, su, primary list), the DB builder's segment buffers and the
+    // output queue. Per worker: a spilled projection is loaded whole while its child is built,
+    // so up to two projections of the most frequent item; the per-level lu/su maps; one pinned
+    // DB segment; the smallest first-level batch (one segment's worth). Everything else
+    // (projections, DB pages) spills.
+    {
+        let n = count.len().max(1);
+        let max_proj = vec_bytes::<ProjTx>(count.values().copied().max().unwrap_or(0) as usize);
+        let multi = ctx.threads > 1;
+        let estimate = |b: usize| -> (usize, usize) {
+            let queue = if multi { (b / 64).clamp(64 * 96, 100_000 * 96) } else { 0 };
+            (3 * map_bytes::<ItemId, Utility>(n) + n * 8 + 2 * super::paged_db::segment_bytes_for(b) + queue,
+             2 * max_proj + 2 * map_bytes::<ItemId, Utility>(n) + 2 * super::paged_db::segment_bytes_for(b))
+        };
+        ctx.admit(cfg.name, &estimate)?;
+    }
+
+    // Pass 2: build the paged DB; root subtree utility per item.
     ctx.progress.set_stage(&format!("{}: Pass 2 (Load DB)", cfg.name));
     let mut builder = PagedDbBuilder::new(&ctx.pool, &ctx.guard);
-    let mut count: HashMap<ItemId, u64> = HashMap::new();
     let mut su_root: HashMap<ItemId, Utility> = HashMap::new();
     let mut items: Vec<ItemId> = Vec::new();
     let mut utils: Vec<Utility> = Vec::new();
@@ -207,7 +229,6 @@ pub fn run_proj_miner(cfg: ProjMinerConfig, source: DataSource, ctx: &mut Mining
         let mut rem: Utility = utils.iter().sum();
         for (k, &it) in items.iter().enumerate() {
             rem -= utils[k];
-            *count.entry(it).or_insert(0) += 1;
             *su_root.entry(it).or_insert(0) += utils[k] + rem;
         }
         builder.push(&items, &utils)?;
@@ -221,10 +242,11 @@ pub fn run_proj_miner(cfg: ProjMinerConfig, source: DataSource, ctx: &mut Mining
     primary.sort_by_key(|&i| (twu.twu.get(&i).copied().unwrap_or(0), i));
     drop(su_root);
 
+
     // Batch top-level items so that one DB scan builds a whole batch of projections.
     // Each concurrently running batch may use a slice of the free native budget.
     let threads = ctx.threads.max(1);
-    let per_batch = (ctx.guard.native_remaining() / (2 * threads)).max(256 * 1024);
+    let per_batch = (ctx.guard.native_remaining() / (2 * threads)).max(super::paged_db::segment_bytes_for(ctx.guard.budget()));
     let min_batches = threads * 4;
     let target_items = primary.len().div_ceil(min_batches).max(1);
     let mut batches: Vec<Vec<ItemId>> = Vec::new();

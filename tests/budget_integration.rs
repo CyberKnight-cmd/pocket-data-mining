@@ -145,6 +145,7 @@ fn run(algo: &mut dyn HuimAlgorithm, db_path: &std::path::Path, min: i64, k: Opt
         // A clean refusal by admission control (budget below what cannot be spilled) is an
         // acceptable outcome only at the tiny budget; anything else is a failure.
         assert!(e.kind() == std::io::ErrorKind::OutOfMemory && budget < (1 << 20), "{}: {e}", algo.name());
+        eprintln!("refused: {e}");
         return RunResult { out: Vec::new(), peak: guard.peak(), leaked: 0, refused: true };
     }
     let peak = guard.peak();
@@ -179,7 +180,7 @@ fn exact_algorithms() -> Vec<(&'static str, Box<dyn HuimAlgorithm>)> {
 const BUDGETS: [usize; 2] = [256 << 20, 96 << 10];
 /// Forced (always-granted) reservations — transient views, merge buffers, page reads —
 /// may exceed the budget by a bounded amount per thread.
-const FORCED_SLACK: usize = 3 << 20;
+const FORCED_SLACK: usize = 64 << 10;
 
 fn check_db(seed: u64, n_tx: usize, n_items: u32, max_len: usize, min: i64) {
     check(random_db(seed, n_tx, n_items, max_len), seed, min);
@@ -214,6 +215,7 @@ fn check(db: Db, seed: u64, min: i64) {
                 ("mhui-aco", Box::new(mhui_aco::MhuiAco::new(false))),
             ] {
                 let r = run(algo.as_mut(), &path, min, None, budget, threads);
+                assert!(!r.refused, "{name}: refused by admission control at budget {budget} (seed {seed})");
                 let got: BTreeSet<_> = r.out.iter().cloned().collect();
                 assert_eq!(r.out.len(), got.len(), "{name}: duplicate output (seed {seed})");
                 assert!(got.is_subset(&expected), "{name}: reported a non-HUI or a wrong utility (seed {seed}): {:?}",
@@ -372,11 +374,30 @@ fn admission_refuses_budget_below_floor() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db.txt");
     write_db(&db, &path);
-    let mut ctx = ctx_with_budget(dir.path(), 8 << 10, 4);
-    let err = fhm::Fhm::new(false).run(DataSource::file(&path), &mut ctx).unwrap_err();
-    assert_eq!(err.kind(), std::io::ErrorKind::OutOfMemory);
-    assert!(err.to_string().contains("Use at least -b"), "{err}");
-    assert_eq!(std::fs::read_to_string(dir.path().join("out.txt")).unwrap_or_default(), "", "no partial output");
+    // Every algorithm (every engine): exact, top-K, average, closed, MMU, windowed, heuristic.
+    let mut algos = exact_algorithms();
+    algos.extend([
+        ("efim-closed", Box::new(efim_closed::EfimClosed::new()) as Box<dyn HuimAlgorithm>),
+        ("haui-miner", Box::new(haui_miner::HauiMiner::new())),
+        ("huim-mmu", Box::new(huim_mmu::HuimMmu::new(false))),
+        ("shuim", Box::new(shuim::Shuim::new(false))),
+        ("tku", Box::new(tku::Tku::new(false))),
+        ("huim-ga", Box::new(huim_ga::HuimGa::new(false))),
+        ("huim-bpso", Box::new(huim_bpso::HuimBpso::new(false))),
+        ("mhui-aco", Box::new(mhui_aco::MhuiAco::new(false))),
+    ]);
+    for (name, mut algo) in algos {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_with_budget(dir.path(), 8 << 10, 4);
+        if matches!(name, "tko" | "rept" | "tku") { ctx.k = Some(10); }
+        let err = match algo.run(DataSource::file(&path), &mut ctx) {
+            Err(e) => e,
+            Ok(_) => panic!("{name}: ran at an 8 KB budget instead of refusing (ledger peak {})", ctx.guard.peak()),
+        };
+        assert_eq!(err.kind(), std::io::ErrorKind::OutOfMemory, "{name}: {err}");
+        assert!(err.to_string().contains("Use at least -b"), "{name}: {err}");
+        assert_eq!(std::fs::read_to_string(dir.path().join("out.txt")).unwrap_or_default(), "", "{name}: no partial output");
+    }
 }
 
 /// When per-thread working sets do not fit, admission lowers the thread count instead of

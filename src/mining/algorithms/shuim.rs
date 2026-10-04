@@ -48,7 +48,10 @@ impl Shuim {
         ctx.output_path = tmp_out_path.clone();
         let result = inner_fhm.run(DataSource::file(&tmp_path), ctx);
         ctx.output_path = base.clone();
-        result?;
+        // Admission refusals come from the inner FHM; say which algorithm the user ran.
+        result.map_err(|e| if e.kind() == io::ErrorKind::OutOfMemory {
+            io::Error::new(e.kind(), format!("SHUIM (per-window {})", e))
+        } else { e })?;
         let found = ctx.progress.huis_found.load(std::sync::atomic::Ordering::Relaxed) - before;
 
         // Append this window's results to the real output, streaming (no full read into RAM).

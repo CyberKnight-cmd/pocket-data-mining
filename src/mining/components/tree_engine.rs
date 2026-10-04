@@ -21,7 +21,11 @@ use crate::types::{ItemId, PageId, Utility};
 use super::tx_spool::TxSpool;
 
 pub const NULL: u32 = u32::MAX;
-const ARENA_PAGE: usize = 64 * 1024;
+/// Node page size: 1/64 of the budget, 4 KB to 64 KB (small budgets get small pages, so a
+/// pinned page is a small share of the budget).
+fn arena_page_bytes(guard: &MemoryGuard) -> usize {
+    (guard.budget() / 64).clamp(4 * 1024, 64 * 1024)
+}
 
 enum ArenaPage {
     Mem(Box<[u8]>, Reservation),
@@ -34,17 +38,26 @@ pub struct NodeArena<T: Copy> {
     guard: Arc<MemoryGuard>,
     pages: Vec<ArenaPage>,
     per_page: usize,
+    page_bytes: usize,
     pub next: u32,
     _t: PhantomData<T>,
 }
 
 impl<T: Copy> NodeArena<T> {
     pub fn new(pool: &Arc<BufferPool>, guard: &Arc<MemoryGuard>) -> Self {
+        Self::with_min_slots(pool, guard, 1)
+    }
+
+    /// Pages hold at least `min_slots` nodes (for `alloc_run` of up to that many).
+    pub fn with_min_slots(pool: &Arc<BufferPool>, guard: &Arc<MemoryGuard>, min_slots: usize) -> Self {
+        let sz = std::mem::size_of::<T>();
+        let per_page = (arena_page_bytes(guard) / sz).max(min_slots);
         Self {
             pool: Arc::clone(pool),
             guard: Arc::clone(guard),
             pages: Vec::new(),
-            per_page: ARENA_PAGE / std::mem::size_of::<T>(),
+            per_page,
+            page_bytes: per_page * sz,
             next: 0,
             _t: PhantomData,
         }
@@ -53,9 +66,9 @@ impl<T: Copy> NodeArena<T> {
     pub fn alloc(&mut self, node: T) -> io::Result<u32> {
         let ptr = self.next;
         while (ptr as usize) / self.per_page >= self.pages.len() {
-            let page = match self.guard.reserve(ARENA_PAGE + 16) {
-                Some(r) => ArenaPage::Mem(vec![0u8; ARENA_PAGE].into_boxed_slice(), r),
-                None => ArenaPage::Pool(OwnedPage::create(&self.pool, vec![0u8; ARENA_PAGE])?),
+            let page = match self.guard.reserve(self.page_bytes + 16) {
+                Some(r) => ArenaPage::Mem(vec![0u8; self.page_bytes].into_boxed_slice(), r),
+                None => ArenaPage::Pool(OwnedPage::create(&self.pool, vec![0u8; self.page_bytes])?),
             };
             self.pages.push(page);
         }
@@ -92,7 +105,7 @@ impl<T: Copy> NodeArena<T> {
     pub fn get(&self, ptr: u32) -> io::Result<T> {
         let (pg, off) = self.loc(ptr);
         match &self.pages[pg] {
-            // SAFETY: off + size_of::<T>() <= ARENA_PAGE; read_unaligned handles packing.
+            // SAFETY: off + size_of::<T>() <= page_bytes; read_unaligned handles packing.
             ArenaPage::Mem(b, _) => Ok(unsafe { std::ptr::read_unaligned(b.as_ptr().add(off) as *const T) }),
             ArenaPage::Pool(p) => {
                 let pin = p.pin()?;
@@ -122,16 +135,22 @@ impl<T: Copy> NodeArena<T> {
 /// Append-only on-disk list of itemsets (phase-1 candidates).
 pub struct ItemsetSpool {
     store: Arc<dyn ChunkStore + Send + Sync>,
+    guard: Arc<MemoryGuard>,
     pages: Vec<(PageId, u32)>, // (page, itemsets in page)
     buf: Vec<u8>,
     buf_count: u32,
+    segment: usize,
+    _buf_res: Reservation,
     pub count: u64,
     pub item_total: u64,
 }
 
 impl ItemsetSpool {
-    pub fn new(store: Arc<dyn ChunkStore + Send + Sync>) -> Self {
-        Self { store, pages: Vec::new(), buf: Vec::new(), buf_count: 0, count: 0, item_total: 0 }
+    pub fn new(store: Arc<dyn ChunkStore + Send + Sync>, guard: &Arc<MemoryGuard>) -> Self {
+        let segment = super::tx_spool::spool_segment_bytes(guard);
+        let res = guard.reserve_force(2 * segment);
+        Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::new(), buf_count: 0, segment,
+               _buf_res: res, count: 0, item_total: 0 }
     }
 
     pub fn push(&mut self, items: &[ItemId]) -> io::Result<()> {
@@ -147,7 +166,7 @@ impl ItemsetSpool {
         self.buf_count += 1;
         self.count += 1;
         self.item_total += items.len() as u64;
-        if self.buf.len() >= 1 << 20 { self.flush()?; }
+        if self.buf.len() >= self.segment { self.flush()?; }
         Ok(())
     }
 
@@ -163,6 +182,7 @@ impl ItemsetSpool {
 
     /// Visit itemsets with index in [from, to).
     fn scan_range(&self, from: u64, to: u64, mut f: impl FnMut(&[ItemId], Utility)) -> io::Result<()> {
+        let _page_res = self.guard.reserve_force(2 * self.segment);
         let mut idx = 0u64;
         let mut page = Vec::new();
         let mut items = Vec::new();
@@ -235,8 +255,8 @@ pub fn verify_with(
     let avg_len = (cands.item_total / n).max(1) as usize;
     let per_cand = 4 * avg_len + 8 + 8 + 4 + 16;
     let threads = ctx.threads.max(1) as u64;
-    let share = (ctx.guard.native_remaining() / (2 * threads as usize)).max(1 << 20);
-    let batch = ((share / per_cand) as u64).max(1024).min(n.div_ceil(threads).max(1));
+    let share = (ctx.guard.native_remaining() / (2 * threads as usize)).max(min_batch_share(&ctx.guard));
+    let batch = ((share / per_cand) as u64).max(64).min(n.div_ceil(threads).max(1));
     let ranges: Vec<(u64, u64)> = (0..n).step_by(batch as usize).map(|s| (s, (s + batch).min(n))).collect();
     ctx.progress.set_stage(&format!("Phase 2: verifying {} candidates in {} batches", n, ranges.len()));
 
@@ -286,6 +306,29 @@ pub fn verify_with(
         if let Err(e) = run() { eprintln!("phase 2 batch failed: {}", e); }
     });
     Ok(())
+}
+
+/// Admission control for the tree miners (see `MiningContext::admit`). What cannot be spilled:
+/// per-item maps (TWU, header table, root index, the transient rank/local maps of one
+/// conditional level, miu) and the item order, the DB spool and candidate spool buffers, two pinned node pages
+/// and the output queue; per phase-2 worker, the smallest candidate batch with its index and
+/// the spool read buffers. Node pages, conditional trees and candidates spill.
+fn admit_tree(ctx: &mut MiningContext, name: &str, n_items: usize, extra_fixed: &dyn Fn(usize) -> usize) -> io::Result<()> {
+    let n = n_items.max(1);
+    let multi = ctx.threads > 1;
+    let estimate = |b: usize| -> (usize, usize) {
+        let seg = (b / 32).clamp(1024, 1 << 20);
+        let queue = if multi { (b / 64).clamp(64 * 96, 100_000 * 96) } else { 0 };
+        let page = (b / 64).clamp(4 * 1024, 64 * 1024); // arena_page_bytes
+        let fixed = 5 * map_bytes::<ItemId, Utility>(n) + n * 8 + 4 * seg + 2 * (page + 16) + queue + extra_fixed(b);
+        (fixed, (b / 16).clamp(8 * 1024, 128 * 1024) + 4 * seg)
+    };
+    ctx.admit(name, &estimate).map(|_| ())
+}
+
+/// Smallest per-thread share of the free budget for a phase-2 candidate batch.
+fn min_batch_share(guard: &MemoryGuard) -> usize {
+    (guard.budget() / 16).clamp(8 * 1024, 128 * 1024)
 }
 
 /// Phase 0 shared by the tree miners: TWU of every item over the raw database.
@@ -474,11 +517,12 @@ pub fn run_twu_tree_miner_with(name: &str, path: &std::path::Path, ctx: &mut Min
     let twu = item_twus(path)?;
     let mut valid: Vec<ItemId> = twu.iter().filter(|&(_, &t)| t >= min).map(|(&i, _)| i).collect();
     valid.sort_by(|a, b| twu[b].cmp(&twu[a]).then_with(|| a.cmp(b)));
+    admit_tree(ctx, name, twu.len(), &|_| 0)?;
 
     ctx.progress.set_stage(&format!("Phase 1: Building {} tree", name));
     let mut arena: NodeArena<TwuNode> = NodeArena::new(&ctx.pool, &ctx.guard);
     let mut tree = TwuTree::new(&mut arena, valid, &ctx.guard)?;
-    let mut db = TxSpool::new(Arc::clone(&ctx.store));
+    let mut db = TxSpool::new(Arc::clone(&ctx.store), &ctx.guard);
     let mut row: Vec<(ItemId, Utility)> = Vec::new();
     let mut items: Vec<ItemId> = Vec::new();
     for tx in DbReader::new(io::BufReader::new(std::fs::File::open(path)?)) {
@@ -495,7 +539,7 @@ pub fn run_twu_tree_miner_with(name: &str, path: &std::path::Path, ctx: &mut Min
     db.seal()?;
 
     ctx.progress.set_stage(&format!("Phase 1: Mining {} tree ({} node pages in RAM)", name, arena.resident_pages()));
-    let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store));
+    let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
     mine_twu_tree(&tree, &mut arena, &mut Vec::new(), &mut cands, ctx)?;
     drop(tree);
     drop(arena);
@@ -524,8 +568,8 @@ pub fn verify_trie(cands: &mut ItemsetSpool, db: &TxSpool, ctx: &MiningContext) 
     let avg_len = (cands.item_total / n).max(1) as usize;
     let per_cand = avg_len * (std::mem::size_of::<TNode>() + 8) + 16;
     let threads = ctx.threads.max(1) as u64;
-    let share = (ctx.guard.native_remaining() / (2 * threads as usize)).max(1 << 20);
-    let batch = ((share / per_cand) as u64).max(1024).min(n.div_ceil(threads).max(1));
+    let share = (ctx.guard.native_remaining() / (2 * threads as usize)).max(min_batch_share(&ctx.guard));
+    let batch = ((share / per_cand) as u64).max(64).min(n.div_ceil(threads).max(1));
     let ranges: Vec<(u64, u64)> = (0..n).step_by(batch as usize).map(|s| (s, (s + batch).min(n))).collect();
     ctx.progress.set_stage(&format!("Phase 2 (trie): verifying {} candidates in {} batches", n, ranges.len()));
     let cands_ref = &*cands;
@@ -763,9 +807,13 @@ pub fn run_hup_tree(path: &std::path::Path, ctx: &mut MiningContext) -> io::Resu
     let twu = item_twus(path)?;
     let mut order: Vec<ItemId> = twu.iter().filter(|&(_, &t)| t >= min).map(|(&i, _)| i).collect();
     order.sort_by(|a, b| twu[b].cmp(&twu[a]).then_with(|| a.cmp(b)));
+    // One-phase, single-threaded: also the per-node utility vectors being read (one value
+    // page; a page holds a whole path, i.e. up to one value per promising item).
+    let max_path = order.len().min(8192);
+    admit_tree(ctx, "HUP-Tree", twu.len(), &|b| ((b / 64).clamp(4 * 1024, 64 * 1024)).max(max_path * 8) + 16)?;
     ctx.progress.set_stage("HUP-Tree: building tree");
     let mut arena: NodeArena<HupNode> = NodeArena::new(&ctx.pool, &ctx.guard);
-    let mut vals: NodeArena<Utility> = NodeArena::new(&ctx.pool, &ctx.guard);
+    let mut vals: NodeArena<Utility> = NodeArena::with_min_slots(&ctx.pool, &ctx.guard, max_path);
     let mut tree = HupTreeS::new(&mut arena, order, &ctx.guard)?;
     let mut row: Vec<(ItemId, Utility)> = Vec::new();
     let mut items: Vec<ItemId> = Vec::new();
@@ -1039,7 +1087,7 @@ fn build_up_tree(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, ctx
 /// Spool every transaction restricted to items with TWU >= `min` (all items when min = 0).
 fn spool_db(path: &std::path::Path, twu: &HashMap<ItemId, Utility>, min: Utility, ctx: &MiningContext) -> io::Result<TxSpool> {
     use crate::preprocessing::db_reader::DbReader;
-    let mut db = TxSpool::new(Arc::clone(&ctx.store));
+    let mut db = TxSpool::new(Arc::clone(&ctx.store), &ctx.guard);
     let mut row: Vec<(ItemId, Utility)> = Vec::new();
     for tx in DbReader::new(io::BufReader::new(std::fs::File::open(path)?)) {
         let tx = tx?;
@@ -1057,12 +1105,13 @@ pub fn run_up_growth(path: &std::path::Path, ctx: &mut MiningContext, variant: U
     let min = ctx.min_utility;
     ctx.progress.set_stage("Phase 1: TWU Calculation (DGU)");
     let twu = item_twus(path)?;
+    admit_tree(ctx, if variant == UpVariant::Growth { "UP-Growth" } else { "UP-Growth+" }, twu.len(), &|_| 0)?;
     let db = spool_db(path, &twu, min, ctx)?;
     ctx.progress.set_stage("Phase 2: Global UP-Tree Construction (DGN)");
     let (mut arena, tree, miu) = build_up_tree(&db, &twu, min, ctx)?;
 
     ctx.progress.set_stage(&format!("Phase 3: CPB Tree Mining ({} node pages in RAM)", arena.resident_pages()));
-    let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store));
+    let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
     let miner = UpMiner { variant, miu: &miu, ctx, min };
     for item in tree.mining_order() {
         miner.mine(&tree, &mut arena, item, &mut Vec::new(), &mut cands)?;
@@ -1092,6 +1141,7 @@ pub fn run_tku(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u6
 
     ctx.progress.set_stage("TKU: TWU and pre-evaluation (PE)");
     let twu = item_twus(path)?;
+    admit_tree(ctx, "TKU", twu.len(), &|_| 0)?;
     let db_all = spool_db(path, &twu, 0, ctx)?;
     let mut item_u: HashMap<ItemId, Utility> = HashMap::new();
     let mut pair_occ = 0usize;
@@ -1106,7 +1156,7 @@ pub fn run_tku(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u6
 
     ctx.progress.set_stage(&format!("TKU: Phase 1 (border {})", border0));
     let (mut arena, tree, miu) = build_up_tree(&db_all, &twu, border0, ctx)?;
-    let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store));
+    let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
     let miner = UpMiner { variant: UpVariant::GrowthPlus, miu: &miu, ctx, min: border0 };
     for item in tree.mining_order() {
         miner.mine(&tree, &mut arena, item, &mut Vec::new(), &mut cands)?;

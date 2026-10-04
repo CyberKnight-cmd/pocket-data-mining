@@ -33,7 +33,7 @@ use crate::preprocessing::{db_reader::DbReader, twu_filter::TwuFilter};
 use crate::types::{ItemId, ULEntry, Utility};
 use super::item_lists::ItemListBuilder;
 use super::paged_db::{PagedDb, PagedDbBuilder};
-use super::ul_join::{BodyAlloc, UlBody};
+use super::ul_join::{BodyAlloc, BodyCursor, UlBody};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Heuristic { Ga, Bpso, Aco }
@@ -49,14 +49,60 @@ struct Space<'a> {
     db: PagedDb,
     alloc: BodyAlloc<'a>,
     ctx: &'a MiningContext,
-    found: HashSet<u64>,
-    found_res: Reservation,
+    found: FoundSet,
     cache: HashMap<u64, Utility>,
     cache_res: Reservation,
     cache_cap: usize,
     writer: crate::mining::core::result_writer::ResultWriter,
     evaluations: u64,
     _index_res: Reservation,
+}
+
+/// HUIs already written (by itemset hash), so each is output once. Exact while the budget
+/// lets it grow; then it becomes a Bloom filter of the same size. A Bloom false positive only
+/// skips writing a genuinely new HUI (lower recall); it never adds a wrong or duplicate one.
+struct FoundSet {
+    exact: Option<HashSet<u64>>,
+    bloom: Vec<u64>,
+    res: Reservation,
+}
+
+impl FoundSet {
+    /// Record `k`; true if it was not recorded before.
+    fn insert(&mut self, k: u64) -> bool {
+        if let Some(set) = &mut self.exact {
+            if set.contains(&k) { return false; }
+            if set.len() < set.capacity() {
+                set.insert(k);
+                return true;
+            }
+            let need = map_bytes::<u64, ()>((set.capacity() * 2).max(16));
+            if self.res.try_grow(need.saturating_sub(self.res.bytes())) {
+                set.insert(k);
+                return true;
+            }
+            let words = (self.res.bytes().max(4 * 1024) / 8).next_power_of_two();
+            self.bloom = vec![0u64; words];
+            let old = self.exact.take().unwrap();
+            for &x in &old { self.bloom_insert(x); }
+            drop(old);
+            self.res.resize_force(words * 8);
+        }
+        self.bloom_insert(k)
+    }
+
+    /// Set the 4 bits of `k`; true if at least one was clear (definitely new).
+    fn bloom_insert(&mut self, k: u64) -> bool {
+        let bits = (self.bloom.len() * 64) as u64;
+        let (h1, h2) = (k, k.rotate_left(32) | 1);
+        let mut new = false;
+        for j in 0..4u64 {
+            let b = h1.wrapping_add(j.wrapping_mul(h2)) & (bits - 1);
+            let (w, m) = ((b / 64) as usize, 1u64 << (b % 64));
+            if self.bloom[w] & m == 0 { new = true; self.bloom[w] |= m; }
+        }
+        new
+    }
 }
 
 /// Result of evaluating an itemset.
@@ -70,31 +116,35 @@ impl Space<'_> {
         h.finish()
     }
 
-    /// Transactions containing all selected items, with the itemset's utility in each.
-    fn occurrences(&self, sel: &[usize]) -> io::Result<Vec<(u32, Utility)>> {
-        if sel.is_empty() { return Ok(Vec::new()); }
-        let mut order: Vec<(usize, usize)> = sel.iter()
-            .map(|&i| self.alloc.view(&self.bodies[i]).map(|v| (v.len(), i)))
-            .collect::<io::Result<_>>()?;
-        order.sort_unstable();
-        let first = self.alloc.view(&self.bodies[order[0].1])?;
-        let _r = self.ctx.guard.reserve_force(first.len() * 12);
-        let mut acc: Vec<(u32, Utility)> = first.iter().map(|e| (e.tid, e.iutils)).collect();
-        drop(first);
-        for &(_, i) in &order[1..] {
-            if acc.is_empty() { break; }
-            let other = self.alloc.view(&self.bodies[i])?;
-            let (mut a, mut b, mut w) = (0, 0, 0);
-            while a < acc.len() && b < other.len() {
-                let (ta, tb) = (acc[a].0, other[b].tid);
-                if ta == tb {
-                    acc[w] = (ta, acc[a].1 + other[b].iutils);
-                    w += 1; a += 1; b += 1;
-                } else if ta < tb { a += 1 } else { b += 1 }
+    /// Visit the transactions containing all selected items, with the itemset's utility in
+    /// each, in TID order; `f` returns false to stop. A streaming k-way intersection: one
+    /// cursor (one chunk in memory) per selected item, whatever the list lengths.
+    fn scan_occurrences(&self, sel: &[usize], mut f: impl FnMut(u32, Utility) -> bool) -> io::Result<()> {
+        if sel.is_empty() { return Ok(()); }
+        let mut cs: Vec<BodyCursor> = sel.iter().map(|&i| BodyCursor::new(self.alloc, &self.bodies[i])).collect();
+        loop {
+            let mut target = 0u32;
+            for c in cs.iter_mut() {
+                match c.head()? { Some(e) => target = target.max(e.tid), None => return Ok(()) }
             }
-            acc.truncate(w);
+            let (mut all, mut u) = (true, 0);
+            for c in cs.iter_mut() {
+                loop {
+                    match c.head()? {
+                        None => return Ok(()),
+                        Some(e) if e.tid < target => c.advance(),
+                        Some(e) => {
+                            if e.tid == target { u += e.iutils } else { all = false }
+                            break;
+                        }
+                    }
+                }
+            }
+            if all {
+                if !f(target, u) { return Ok(()); }
+                for c in cs.iter_mut() { c.advance(); }
+            }
         }
-        Ok(acc)
     }
 
     fn utility(&mut self, sel: &[usize]) -> io::Result<Utility> {
@@ -102,7 +152,8 @@ impl Space<'_> {
         let k = Self::key(sel);
         if let Some(&u) = self.cache.get(&k) { return Ok(u); }
         self.evaluations += 1;
-        let u: Utility = self.occurrences(sel)?.iter().map(|x| x.1).sum();
+        let mut u: Utility = 0;
+        self.scan_occurrences(sel, |_, x| { u += x; true })?;
         if self.cache.len() < self.cache_cap {
             let before = self.cache.capacity();
             self.cache.insert(k, u);
@@ -119,11 +170,7 @@ impl Space<'_> {
         let mut new_hui = false;
         if u >= self.ctx.min_utility && !sel.is_empty() {
             let k = Self::key(sel);
-            let before = self.found.capacity();
             if self.found.insert(k) {
-                if self.found.capacity() != before {
-                    self.found_res.resize_force(map_bytes::<u64, ()>(self.found.capacity()));
-                }
                 let itemset: Vec<ItemId> = sel.iter().map(|&i| self.items[i]).collect();
                 self.writer.write_hui(&itemset, u)?;
                 self.ctx.progress.huis_found.fetch_add(1, Ordering::Relaxed);
@@ -167,13 +214,25 @@ impl Space<'_> {
     /// transaction containing `sel`.
     fn extension_candidates(&self, rng: &mut StdRng, sel: &[usize], out: &mut Vec<usize>) -> io::Result<()> {
         out.clear();
-        let occ = self.occurrences(sel)?;
-        if occ.is_empty() { return Ok(()); }
-        let tid = occ[rng.gen_range(0..occ.len())].0;
+        // One uniformly random occurrence (reservoir sampling over the stream).
+        let (mut tid, mut seen) = (None, 0u64);
+        self.scan_occurrences(sel, |t, _| {
+            seen += 1;
+            if rng.gen_range(0..seen) == 0 { tid = Some(t); }
+            true
+        })?;
+        let Some(tid) = tid else { return Ok(()) };
         let mut items = Vec::new();
         self.tx_items(tid, &mut items)?;
         out.extend(items.into_iter().filter(|i| sel.binary_search(i).is_err()));
         Ok(())
+    }
+
+    /// Does the itemset occur in at least one transaction?
+    fn occurs(&self, sel: &[usize]) -> io::Result<bool> {
+        let mut any = false;
+        self.scan_occurrences(sel, |_, _| { any = true; false })?;
+        Ok(any)
     }
 
     /// Already evaluated (cache hit)?
@@ -196,7 +255,7 @@ impl Space<'_> {
 
     /// Drop random items until the itemset occurs somewhere (empty if nothing remains).
     fn repair(&self, rng: &mut StdRng, sel: &mut Vec<usize>) -> io::Result<()> {
-        while !sel.is_empty() && self.occurrences(sel)?.is_empty() {
+        while !sel.is_empty() && !self.occurs(sel)? {
             let k = rng.gen_range(0..sel.len());
             sel.remove(k);
         }
@@ -244,6 +303,21 @@ pub fn run_heuristic(kind: Heuristic, name: &str, source: DataSource, ctx: &mut 
     ctx.progress.set_stage(&format!("{}: Pass 1 (TWU)", name));
     let twu = TwuFilter::new(min).compute(DbReader::new(BufReader::new(File::open(&path)?)).filter_map(Result::ok));
 
+    // Admission control, before pass 2 fills free memory with data that could spill. Fixed:
+    // per-item index, TWU / pheromone / velocity-sized arrays, the smallest evaluation cache
+    // and found-set, pass-2 buffers. Per worker (one): an evaluation streams one chunk per
+    // selected item, plus one pinned DB segment.
+    {
+        let n = twu.twu.len();
+        let estimate = |b: usize| -> (usize, usize) {
+            let chunk_b = (b / 256 / 20).clamp(64, 4096) * 20;
+            (map_bytes::<ItemId, usize>(n) + n * (4 * 8 + std::mem::size_of::<UlBody>()) + 64 * 48 + 4 * 1024
+                 + 2 * (b / 32).clamp(4 * 1024, 1 << 20) + 2 * super::paged_db::segment_bytes_for(b),
+             maxlen * chunk_b + super::paged_db::segment_bytes_for(b))
+        };
+        ctx.admit(name, &estimate)?;
+    }
+
     // Pass 2: TID lists (exact utilities) and a horizontal copy (sampling). The TID of a
     // transaction is its position in the horizontal copy.
     ctx.progress.set_stage(&format!("{}: Pass 2 (TID lists + transactions)", name));
@@ -280,9 +354,9 @@ pub fn run_heuristic(kind: Heuristic, name: &str, source: DataSource, ctx: &mut 
     let mut sp = Space {
         _index_res: ctx.guard.reserve_force(map_bytes::<ItemId, usize>(index.capacity())),
         items, index, bodies, db, alloc, ctx,
-        found: HashSet::new(), found_res: ctx.guard.reserve_force(0),
+        found: FoundSet { exact: Some(HashSet::new()), bloom: Vec::new(), res: ctx.guard.reserve_force(0) },
         cache: HashMap::new(), cache_res: ctx.guard.reserve_force(0),
-        cache_cap: (ctx.guard.native_remaining() / 4 / 48).clamp(1024, 1 << 22),
+        cache_cap: (ctx.guard.native_remaining() / 4 / 48).clamp(64, 1 << 22),
         writer, evaluations: 0,
     };
     if n == 0 || sp.db.len() == 0 {
