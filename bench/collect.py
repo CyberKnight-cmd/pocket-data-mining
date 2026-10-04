@@ -379,7 +379,11 @@ def main():
             break
         # A budget the machine cannot currently give (another program holds the RAM) is not a
         # result: skip without recording, so a later pass runs it. (Done runs return early.)
+        # BENCH_MEM_REQUIRE_MB overrides (a workstation where a 20 GB budget is an upper bound
+        # the workload never reaches; Air-HUIM's safety net logs any cap it applies).
         need = (job.get("budget_mb") or 0) * 1048576 + (1 << 30)
+        if os.environ.get("BENCH_MEM_REQUIRE_MB"):
+            need = min(need, int(os.environ["BENCH_MEM_REQUIRE_MB"]) << 20)
         if job.get("budget_mb") and not os.path.exists(os.path.join(args.data, "runs", job["id"], "result.json")) \
                 and mem_available() < need:
             print(f"[{i + 1}/{len(jobs)}] skipped: {mem_available() >> 20} MB available < "
