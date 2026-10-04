@@ -34,11 +34,13 @@ pub struct ProjMinerConfig {
 #[derive(Clone, Copy, Debug)]
 struct ProjTx {
     tx_idx: u32,
-    offset: u16,
+    /// u32: transactions longer than 65,535 items exist (u16 wrapped silently); free, since
+    /// the struct is 16 bytes either way.
+    offset: u32,
     prefix_utility: Utility,
 }
 
-const PROJ_BYTES: usize = 4 + 2 + 8;
+const PROJ_BYTES: usize = 4 + 4 + 8;
 
 enum Proj {
     Mem(Vec<ProjTx>, Option<Reservation>),
@@ -73,8 +75,8 @@ impl Proj {
                 let pin = page.pin()?;
                 let v: Vec<ProjTx> = pin.chunks_exact(PROJ_BYTES).map(|c| ProjTx {
                     tx_idx: u32::from_le_bytes(c[0..4].try_into().unwrap()),
-                    offset: u16::from_le_bytes(c[4..6].try_into().unwrap()),
-                    prefix_utility: i64::from_le_bytes(c[6..14].try_into().unwrap()),
+                    offset: u32::from_le_bytes(c[4..8].try_into().unwrap()),
+                    prefix_utility: i64::from_le_bytes(c[8..16].try_into().unwrap()),
                 }).collect();
                 drop(pin);
                 Ok(f(&v))
@@ -161,7 +163,7 @@ impl Miner<'_> {
                     if let Some(pos) = tx.position_from(t.offset as usize, item) {
                         let pu = t.prefix_utility + tx.util(pos);
                         util += pu;
-                        out.push(ProjTx { tx_idx: t.tx_idx, offset: (pos + 1) as u16, prefix_utility: pu });
+                        out.push(ProjTx { tx_idx: t.tx_idx, offset: (pos + 1) as u32, prefix_utility: pu });
                     }
                 }
                 Ok((out, util))
@@ -286,7 +288,7 @@ pub fn run_proj_miner(cfg: ProjMinerConfig, source: DataSource, ctx: &mut Mining
                         utils_1[s] += u;
                         let v = &mut projs[s];
                         let before = v.capacity();
-                        v.push(ProjTx { tx_idx: idx, offset: (k + 1) as u16, prefix_utility: u });
+                        v.push(ProjTx { tx_idx: idx, offset: (k + 1) as u32, prefix_utility: u });
                         if v.capacity() != before {
                             res.grow_force(vec_bytes::<ProjTx>(v.capacity()) - vec_bytes::<ProjTx>(before));
                         }
