@@ -1,18 +1,20 @@
 use std::io;
 use crate::mining::{
-    algorithms::fhm::Fhm,
+    components::heuristic_engine::{run_heuristic, Heuristic},
     core::{algorithm::HuimAlgorithm, context::MiningContext, data_source::DataSource},
 };
 
-/// MHUI-ACO (Ant Colony Optimization)
-/// Currently uses a hybrid wrapper over FHM to guarantee exactness in benchmarks.
+/// MHUI-ACO: ant-colony search for HUIs — ants add items with probability
+/// proportional to pheromone^a x TWU^b; pheromone evaporates and is deposited on high-utility solutions.
+/// Approximate: every reported itemset is a true HUI with its exact utility, but some HUIs
+/// may be missed (recall < 100%). Seeded and reproducible; see `components::heuristic_engine`.
 pub struct MhuiAco {
-    inner: Fhm,
+    _enable_prefetch: bool,
 }
 
 impl MhuiAco {
     pub fn new(enable_prefetch: bool) -> Self {
-        Self { inner: Fhm::new(enable_prefetch) }
+        Self { _enable_prefetch: enable_prefetch }
     }
 }
 
@@ -22,8 +24,6 @@ impl HuimAlgorithm for MhuiAco {
     }
 
     fn run(&mut self, source: DataSource, ctx: &mut MiningContext) -> io::Result<u64> {
-        ctx.progress.set_stage("MHUI-ACO: Laying pheromones...");
-        // Simulated ant colony optimization
-        self.inner.run(source, ctx)
+        run_heuristic(Heuristic::Aco, "MHUI-ACO", source, ctx)
     }
 }

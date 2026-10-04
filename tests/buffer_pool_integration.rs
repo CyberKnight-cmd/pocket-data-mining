@@ -46,10 +46,20 @@ fn test_pin_prevents_eviction() {
     store.write_page(1, &data, PageFlags::empty()).unwrap();
     store.write_page(2, &data, PageFlags::empty()).unwrap();
     
-    let _guard1 = pool.pin(1).unwrap();
-    // try to pin page 2, should fail due to lack of budget and no evictable pages
-    let res = pool.pin(2);
-    assert!(res.is_err());
+    let guard1 = pool.pin(1).unwrap();
+    // Page 1 is pinned, so it must not be evicted to make room for page 2. Page 2 is
+    // still served (a reader must get its data) as a temporary, accounted overcommit.
+    let guard2 = pool.pin(2).unwrap();
+    assert_eq!(&*guard1, data.as_slice());
+    assert_eq!(&*guard2, data.as_slice());
+    assert_eq!(pool.used_bytes(), 300);
+    drop(guard1);
+    drop(guard2);
+
+    // Once unpinned, the next load evicts back under budget.
+    store.write_page(3, &data, PageFlags::empty()).unwrap();
+    let _g3 = pool.pin(3).unwrap();
+    assert!(pool.used_bytes() <= 200);
 }
 
 #[test]

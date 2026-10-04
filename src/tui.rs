@@ -25,6 +25,7 @@ use crate::{
 pub fn run_tui(
     progress: Arc<MiningProgress>,
     pool: Arc<BufferPool>,
+    guard: Arc<crate::mining::core::MemoryGuard>,
     done: Arc<AtomicBool>,
 ) -> io::Result<()> {
     enable_raw_mode()?;
@@ -80,23 +81,15 @@ pub fn run_tui(
                 .block(Block::default().title("Status").borders(Borders::ALL));
             f.render_widget(status_block, main_chunks[0]);
 
-            // Center: Buffer Pool & Global RAM
-            let used = pool.used_bytes();
-            let budget = pool.budget_bytes();
-            let ratio = if budget > 0 { (used as f64 / budget as f64).clamp(0.0, 1.0) } else { 0.0 };
-            
-            // Get actual OS memory usage
-            let mut system = sysinfo::System::new_all();
-            system.refresh_all();
-            let current_pid = sysinfo::get_current_pid().unwrap();
-            let process_ram_kb = if let Some(process) = system.process(current_pid) {
-                process.memory() / 1024
-            } else {
-                0
-            };
-            let process_ram_mb = process_ram_kb as f64 / 1024.0;
-            // Assuming 8GB typical max for gauge scaling visually, clamp at 1.0
-            let global_ratio = (process_ram_mb / 8000.0).clamp(0.0, 1.0);
+            // Center: whole-process budget (ledger) and the buffer pool's share of it
+            const MB: f64 = 1024.0 * 1024.0;
+            let budget = guard.budget().max(1) as f64;
+            let ledger = guard.used() as f64;
+            let pool_used = pool.used_bytes() as f64;
+            let rss = crate::mining::core::memory_guard::current_rss_bytes() as f64;
+            let ratio = (pool_used / budget).clamp(0.0, 1.0);
+            let process_ram_mb = rss / MB;
+            let global_ratio = (rss.max(ledger) / budget).clamp(0.0, 1.0);
 
             let m = &pool.metrics;
             let hits = m.hits.load(Ordering::Relaxed);
@@ -123,17 +116,17 @@ pub fn run_tui(
                 .split(main_chunks[1]);
 
             let global_gauge = Gauge::default()
-                .block(Block::default().title("Global OS RAM (EUCS + Index)").borders(Borders::ALL))
+                .block(Block::default().title("Process Memory vs Budget (RSS | ledger)").borders(Borders::ALL))
                 .gauge_style(Style::default().fg(Color::Magenta))
                 .ratio(global_ratio)
-                .label(format!("{:.1} MB", process_ram_mb));
+                .label(format!("{:.1} MB | {:.1} MB / {:.1} MB", process_ram_mb, ledger / MB, budget / MB));
             f.render_widget(global_gauge, pool_layout[0]);
 
             let bp_gauge = Gauge::default()
-                .block(Block::default().title("Buffer Pool Budget").borders(Borders::ALL))
+                .block(Block::default().title("Buffer Pool (share of budget)").borders(Borders::ALL))
                 .gauge_style(Style::default().fg(Color::Cyan))
                 .ratio(ratio)
-                .label(format!("{:.1} MB / {:.1} MB", used as f64 / 1024.0 / 1024.0, budget as f64 / 1024.0 / 1024.0));
+                .label(format!("{:.1} MB / {:.1} MB", pool_used / MB, budget / MB));
             f.render_widget(bp_gauge, pool_layout[1]);
 
             let metrics_block = Paragraph::new(pool_text)

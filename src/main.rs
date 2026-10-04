@@ -53,8 +53,20 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // Must run before any worker threads exist so arena limits apply to all of them.
+    pocket_data_mining::mining::core::memory_guard::tune_allocator_for_budget();
+    // One worker is plenty (only the optional prefetcher spawns tasks); the default of
+    // one worker per core costs memory on small devices for nothing.
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async_main());
+}
+
+async fn async_main() {
     let cli = Cli::parse();
     match cli.command {
         Some(Commands::Mine { dataset, algorithm, min_utility, budget_mb, output, chunk_store, prefetch, threads, top_k, min_length, max_length }) => {
@@ -106,6 +118,7 @@ fn run_interactive_wizard(
 ) {
     println!("==========================================================");
     println!("     Air-HUIM Interactive Mining Wizard");
+    println!("     (every algorithm runs within the memory budget you set)");
     println!("==========================================================\n");
 
     let theme = ColorfulTheme::default();
@@ -120,29 +133,29 @@ fn run_interactive_wizard(
                 "── Family 1: Level-Wise ──",
                 "  Two-Phase (Level-wise Candidate Generation)",
                 "  IHUP (Incremental HUP-Tree)",
-                "  HUP-Tree (Header-Table Utility Prefix)",
+                "  HUP-Tree (One-Phase Utility-Vector Tree)",
                 "── Family 2: Tree-Based ──",
                 "  UP-Growth (UP-Tree + DGU/DGN Pruning)",
-                "  UP-Growth+ (Improved DLU/DLN Bounds)",
+                "  UP-Growth+ (Node-Level DLU/DLN Bounds)",
                 "  HUI-Trie (Trie-based Exact Mining)",
                 "── Family 3: Utility-List ──",
-                "  FHM (Fastest — EUCS Pruning)               ★ Budget-Safe",
-                "  FHM+ (FHM + Length Constraints)             ★ Budget-Safe",
-                "  HUI-Miner (Classic, No EUCS)                ★ Budget-Safe",
-                "  HUP-Miner (Parallel Utility Lists)          ★ Budget-Safe",
-                "  mHUIMiner (Memory-Adaptive Utility Lists)   ★ Budget-Safe",
+                "  FHM (Fastest — EUCS Pruning)",
+                "  FHM+ (FHM + Length Constraints)",
+                "  HUI-Miner (Classic, No EUCS)",
+                "  HUP-Miner (Parallel Utility Lists)",
+                "  mHUIMiner (Memory-Adaptive Utility Lists)",
                 "── Family 4: Database Projection ──",
                 "  EFIM (Transaction Merging + Projection)",
                 "  EFIM-Closed (Closed Itemset Projection)",
-                "  HAUI-Miner (Approximate Utilities via Projection)",
+                "  HAUI-Miner (High Average-Utility Itemsets)",
                 "── Family 5: Top-K ──",
                 "  TKU (Top-K Utility Tree)",
                 "  TKO (Top-K in One phase)",
                 "  REPT (Top-K with Early Pruning)",
                 "── Family 6: Streaming / Incremental ──",
-                "  HUIM-MMU (Sliding Window MMU)",
-                "  SHUIM (Streaming HUIM)",
-                "  IncFHM (Incremental FHM)",
+                "  HUIM-MMU (Multiple Minimum Utilities)",
+                "  SHUIM (Sliding-Window Stream Mining)",
+                "  IncFHM (Incremental, EIHI-style batches)",
                 "── Family 7: Heuristic / AI-Based ──",
                 "  HUIM-GA (Genetic Algorithm)",
                 "  HUIM-BPSO (Particle Swarm Optimization)",
@@ -308,9 +321,9 @@ fn run_interactive_wizard(
             if is_lock_bound && t > 1 {
                 println!("[WARNING] {} is lock-bound. You requested {}, but extreme BufferPool contention will occur.", algorithm, t);
             } else if t > recommended_threads {
-                println!("\n[PREDICTOR WARNING]");
-                println!("↳ Math suggests a maximum of {} threads for your {} MB budget.", recommended_threads, budget_mb);
-                println!("↳ Risk of Out-Of-Memory or extreme paging thrashing is HIGH!\n");
+                println!("\n[PREDICTOR NOTE]");
+                println!("↳ Estimate suggests {} threads fit your {} MB budget in RAM.", recommended_threads, budget_mb);
+                println!("↳ Memory stays within budget either way; extra threads share it and may spill more to disk.\n");
             }
             t
         },
@@ -392,10 +405,19 @@ fn run_mining(
         )),
     );
 
+    // The ledger tracks data structures, not allocator metadata, I/O buffers or thread
+    // stacks. Hold back a margin for those so that the process RSS — not just the
+    // ledger — stays within what the user asked for.
+    let budget_bytes = budget_mb * 1024 * 1024;
     let guard = Arc::new(pocket_data_mining::mining::MemoryGuard::new(
-        budget_mb * 1024 * 1024,
+        pocket_data_mining::mining::core::memory_guard::ledger_for_budget(budget_bytes),
         Arc::clone(&store) as Arc<dyn ChunkStore + Send + Sync>,
     ));
+    // One ledger for everything: pool frames and native structures share the budget.
+    pool.attach_guard(Arc::clone(&guard));
+    // The budget is for the whole process, so charge what is already resident
+    // (binary, libraries, allocator, thread stacks) before mining starts.
+    guard.force_alloc(pocket_data_mining::mining::core::memory_guard::current_rss_bytes());
 
     let progress = Arc::new(MiningProgress::new());
     let mut ctx = pocket_data_mining::mining::MiningContext::new(
@@ -446,16 +468,58 @@ fn run_mining(
     
     let tui_progress = Arc::clone(&progress);
     let tui_pool = Arc::clone(&pool);
+    let tui_guard = Arc::clone(&ctx.guard);
     let tui_done = Arc::clone(&done);
     let tui_thread = std::thread::spawn(move || {
-        let _ = run_tui(tui_progress, tui_pool, tui_done);
+        let _ = run_tui(tui_progress, tui_pool, tui_guard, tui_done);
     });
+
+    pocket_data_mining::mining::core::memory_guard::spawn_heap_trimmer(Arc::clone(&ctx.guard), Arc::clone(&done));
+
+    // AIR_HUIM_MEMLOG=1: print ledger vs. real RSS to stderr, every AIR_HUIM_MEMLOG_MS
+    // milliseconds (default 1000).
+    if std::env::var_os("AIR_HUIM_MEMLOG").is_some() {
+        let every = std::env::var("AIR_HUIM_MEMLOG_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1000u64);
+        let g = Arc::clone(&ctx.guard);
+        let p = Arc::clone(&pool);
+        let pr = Arc::clone(&progress);
+        let d = Arc::clone(&done);
+        std::thread::spawn(move || {
+            use pocket_data_mining::mining::core::memory_guard::current_rss_bytes;
+            let t0 = std::time::Instant::now();
+            while !d.load(Ordering::Relaxed) {
+                const MB: f64 = 1048576.0;
+                eprintln!(
+                    "[memlog] t={:>5.1}s rss={:>7.1}MB ledger={:>7.1}MB (peak {:>6.1}) pool={:>7.1}MB budget={:.0}MB stage={}",
+                    t0.elapsed().as_secs_f64(), current_rss_bytes() as f64 / MB, g.used() as f64 / MB, g.peak() as f64 / MB,
+                    p.used_bytes() as f64 / MB, g.budget() as f64 / MB, pr.stage.lock().unwrap()
+                );
+                std::thread::sleep(std::time::Duration::from_millis(every));
+            }
+        });
+    }
 
     match algo_box.run(DataSource::file(&dataset), &mut ctx) {
         Ok(count) => {
             done.store(true, Ordering::Relaxed);
             let _ = tui_thread.join();
             println!("Mining complete! Found {} HUIs.", count);
+            println!(
+                "Memory: budget {:.1} MB (ledger {:.1} MB) | ledger peak {:.1} MB | process peak RSS {:.1} MB",
+                budget_mb as f64,
+                ctx.guard.budget() as f64 / 1048576.0,
+                ctx.guard.peak() as f64 / 1048576.0,
+                pocket_data_mining::mining::core::memory_guard::peak_rss_bytes() as f64 / 1048576.0,
+            );
+            {
+                use std::sync::atomic::Ordering::Relaxed;
+                let m = &pool.metrics;
+                println!(
+                    "Pool: hits {} | misses {} | evictions {} | read {:.1} MB | written {:.1} MB",
+                    m.hits.load(Relaxed), m.misses.load(Relaxed), m.evictions.load(Relaxed),
+                    m.bytes_read.load(Relaxed) as f64 / 1048576.0, m.bytes_written.load(Relaxed) as f64 / 1048576.0,
+                );
+            }
         }
         Err(e) => {
             done.store(true, Ordering::Relaxed);

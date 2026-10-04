@@ -20,6 +20,12 @@ pub struct MiningContext {
     pub max_length: usize,
     pub guard: Arc<super::MemoryGuard>,
     pub stats: super::DatasetStats,
+    /// What to do with a new utility list when the budget has no room: spill it, or drop it
+    /// and recompute it from its parents (cost model). From AIR_HUIM_REMAT (auto|off|always).
+    pub remat: crate::mining::components::ul_join::RematMode,
+    /// Tree miners: partition projection when the global tree would not fit (auto), always,
+    /// or never. From AIR_HUIM_TREE_PARTITION.
+    pub tree_partition: crate::mining::components::tree_partition::PartitionMode,
 }
 
 impl MiningContext {
@@ -37,7 +43,9 @@ impl MiningContext {
         stats: super::DatasetStats,
     ) -> Self {
         let chunk_bytes = pool.budget_bytes() / 4;
-        Self { pool, store, progress, min_utility, output_path, k, threads, chunk_bytes, min_length, max_length, guard, stats }
+        Self { pool, store, progress, min_utility, output_path, k, threads, chunk_bytes, min_length, max_length, guard, stats,
+               remat: crate::mining::components::ul_join::RematMode::from_env(),
+               tree_partition: crate::mining::components::tree_partition::PartitionMode::from_env() }
     }
 
     /// Compute how many 1-itemset utility lists can fit in the chunk budget.
@@ -48,20 +56,64 @@ impl MiningContext {
         n.max(1) // always at least 1
     }
 
-    /// Apply OS safety net — cap Buffer Pool budget to (available_ram - 500MB).
+    /// Apply OS safety net — cap the whole budget (ledger and pool) to what the OS can
+    /// actually give us: (available RAM + what we already hold) minus a margin of 20% of
+    /// that, at most 500 MB. (A fixed 500 MB margin made any budget impossible on a busy or
+    /// small machine: with 369 MB available it capped the budget at zero.)
     pub fn apply_os_safety_net(&self) {
-        let mut sys = sysinfo::System::new_all();
-        sys.refresh_all();
-        let available = sys.available_memory();
-        let safety: u64 = 500 * 1024 * 1024;
-        let safe = available.saturating_sub(safety) as usize;
-        let requested = self.pool.budget_bytes();
-        let final_budget = requested.min(safe);
-        self.pool.set_budget(final_budget);
-        self.progress.set_stage(&format!(
-            "DFS (Budget: {:.0}MB)",
-            final_budget as f64 / 1024.0 / 1024.0
-        ));
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let available = sys.available_memory() as usize + self.guard.used();
+        let safety = (available / 5).min(500 * 1024 * 1024);
+        let safe = available.saturating_sub(safety);
+        if safe < self.guard.budget() {
+            eprintln!("[safety-net] only {:.0} MB of RAM is available; ledger budget lowered from {:.0} MB to {:.0} MB",
+                      available as f64 / 1048576.0, self.guard.budget() as f64 / 1048576.0,
+                      safe.max(self.guard.used()) as f64 / 1048576.0);
+            self.guard.set_budget(safe.max(self.guard.used()));
+        }
+        if safe < self.pool.budget_bytes() {
+            self.pool.set_budget(safe);
+        }
+    }
+
+    /// Admission control. `fixed` = bytes the run needs whatever the budget (headers, maps,
+    /// minimum buffers); `per_thread` = constant working set of one worker (streaming join
+    /// chunks, spill page, scratch). Everything else is data the engine can spill.
+    ///
+    /// * refuses the run (clear error, before any mining) if even one thread cannot fit;
+    /// * otherwise lowers the thread count until the per-thread working sets use at most half
+    ///   of what is free, leaving the rest for data that would otherwise be spilled.
+    /// Returns the thread count to use (also stored in `self.threads`).
+    /// `estimate(ledger_budget)` returns `(fixed, per_thread)` for a given ledger budget.
+    pub fn admit(&mut self, name: &str, estimate: &dyn Fn(usize) -> (usize, usize)) -> std::io::Result<usize> {
+        const MB: f64 = 1048576.0;
+        let (fixed, per_thread) = estimate(self.guard.budget());
+        let free = self.guard.native_limit().saturating_sub(self.guard.used());
+        if fixed + per_thread > free {
+            // The user-facing budget that would fit (same margin and pool-reserve rules).
+            let one_worker = |ledger: usize| { let (f, p) = estimate(ledger); f + p };
+            let need = super::memory_guard::min_budget_for(&one_worker, self.guard.used()) as f64 * MB;
+            return Err(std::io::Error::new(std::io::ErrorKind::OutOfMemory, format!(
+                "{}: the memory budget is too small for this dataset: it needs about {:.0} KB that cannot be \
+                 spilled ({:.0} KB fixed + {:.0} KB for one worker) but only {:.0} KB is free \
+                 ({:.0} KB already in use, ledger budget {:.0} KB). Use at least -b {:.0}.",
+                name, (fixed + per_thread) as f64 / 1024.0, fixed as f64 / 1024.0, per_thread as f64 / 1024.0,
+                free as f64 / 1024.0, self.guard.used() as f64 / 1024.0, self.guard.budget() as f64 / 1024.0,
+                (need / MB).ceil())));
+        }
+        let requested = self.threads.max(1);
+        let room = (free / 2).saturating_sub(fixed);
+        let fit = if per_thread == 0 { requested } else { (room / per_thread).max(1) };
+        let threads = requested.min(fit);
+        if threads < requested {
+            let msg = format!("{}: budget allows {} worker thread(s) ({:.1} MB each); using {} instead of {}",
+                              name, fit, per_thread as f64 / MB, threads, requested);
+            eprintln!("[admission] {}", msg);
+            self.progress.set_stage(&msg);
+        }
+        self.threads = threads;
+        Ok(threads)
     }
 
     pub fn open_writer(&self) -> std::io::Result<ResultWriter> {
@@ -79,9 +131,13 @@ impl MiningContext {
             use crossbeam_channel as mpsc;
             use rayon::prelude::*;
 
-            // BOUNDED queue prevents RAM explosion! If the disk writer is too slow, 
-            // the Rayon threads will pause and wait, capping RAM overhead exactly.
-            let (tx_hui, rx_hui) = mpsc::bounded::<(Vec<crate::types::ItemId>, crate::types::Utility)>(100_000);
+            // BOUNDED queue prevents RAM explosion! If the disk writer is too slow,
+            // the Rayon threads will pause and wait. Capacity scales with the budget
+            // (~1/64 of it, at ~96 bytes per queued itemset) and is accounted up front.
+            const MSG_BYTES: usize = 96;
+            let cap = (self.guard.budget() / 64 / MSG_BYTES).clamp(64, 100_000);
+            let _queue_res = self.guard.reserve_force(cap * MSG_BYTES);
+            let (tx_hui, rx_hui) = mpsc::bounded::<(Vec<crate::types::ItemId>, crate::types::Utility)>(cap);
             let output_path = self.output_path.clone();
             
             let writer_thread = std::thread::spawn(move || {

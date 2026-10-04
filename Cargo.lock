@@ -664,6 +664,7 @@ dependencies = [
  "csv",
  "dashmap",
  "dialoguer",
+ "libc",
  "lz4_flex",
  "parking_lot",
  "proptest",

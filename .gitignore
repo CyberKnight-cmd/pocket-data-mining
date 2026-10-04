@@ -2,3 +2,4 @@
 chunks/
 results/
 output*.txt
+__pycache__/

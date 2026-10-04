@@ -50,6 +50,8 @@ pub fn run_experiment(cfg: &ExperimentConfig) -> std::io::Result<ExperimentResul
         cfg.budget_bytes,
         Arc::clone(&store) as Arc<dyn ChunkStore + Send + Sync>,
     ));
+    // One ledger: pool frames and native structures share the budget.
+    pool.attach_guard(Arc::clone(&guard));
 
     // 3. Run FHM
     let progress = Arc::new(crate::progress::MiningProgress::new());
