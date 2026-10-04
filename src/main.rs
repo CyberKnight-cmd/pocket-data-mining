@@ -511,6 +511,15 @@ fn run_mining(
                 ctx.guard.peak() as f64 / 1048576.0,
                 pocket_data_mining::mining::core::memory_guard::peak_rss_bytes() as f64 / 1048576.0,
             );
+            {
+                use std::sync::atomic::Ordering::Relaxed;
+                let m = &pool.metrics;
+                println!(
+                    "Pool: hits {} | misses {} | evictions {} | read {:.1} MB | written {:.1} MB",
+                    m.hits.load(Relaxed), m.misses.load(Relaxed), m.evictions.load(Relaxed),
+                    m.bytes_read.load(Relaxed) as f64 / 1048576.0, m.bytes_written.load(Relaxed) as f64 / 1048576.0,
+                );
+            }
         }
         Err(e) => {
             done.store(true, Ordering::Relaxed);

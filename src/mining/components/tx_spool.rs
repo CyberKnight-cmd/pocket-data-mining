@@ -28,7 +28,12 @@ pub struct TxSpool {
 
 impl TxSpool {
     pub fn new(store: Arc<dyn ChunkStore + Send + Sync>, guard: &Arc<MemoryGuard>) -> Self {
-        let segment = spool_segment_bytes(guard);
+        Self::with_segment(store, guard, spool_segment_bytes(guard))
+    }
+
+    /// A spool with a given segment size (many spools open at once, e.g. partitions).
+    pub fn with_segment(store: Arc<dyn ChunkStore + Send + Sync>, guard: &Arc<MemoryGuard>, segment: usize) -> Self {
+        let segment = segment.max(256);
         let res = guard.reserve_force(segment);
         Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::with_capacity(segment), segment, _buf_res: Some(res) }
     }

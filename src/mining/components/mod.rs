@@ -7,6 +7,7 @@ pub mod tx_spool;
 pub mod paged_db;
 pub mod proj_engine;
 pub mod tree_engine;
+pub mod tree_partition;
 pub mod heuristic_engine;
 pub mod pair_util;
 pub mod efim_engine;

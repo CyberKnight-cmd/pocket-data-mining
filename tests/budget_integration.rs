@@ -17,6 +17,7 @@ use pocket_data_mining::{
     storage::{chunk_store::ChunkStore, FileChunkStore},
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use pocket_data_mining::mining::components::tree_partition::PartitionMode;
 
 type Itemset = Vec<u32>;
 
@@ -125,6 +126,12 @@ struct RunResult {
 
 fn run(algo: &mut dyn HuimAlgorithm, db_path: &std::path::Path, min: i64, k: Option<u64>,
        budget: usize, threads: usize) -> RunResult {
+    run_with(algo, db_path, min, k, budget, threads, None)
+}
+
+/// `run` with the tree miners' partition mode forced (None: the default, auto).
+fn run_with(algo: &mut dyn HuimAlgorithm, db_path: &std::path::Path, min: i64, k: Option<u64>,
+            budget: usize, threads: usize, partition: Option<PartitionMode>) -> RunResult {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(FileChunkStore::new(dir.path().join("chunks"), false).unwrap());
     let store_dyn = store.clone() as Arc<dyn ChunkStore + Send + Sync>;
@@ -141,6 +148,7 @@ fn run(algo: &mut dyn HuimAlgorithm, db_path: &std::path::Path, min: i64, k: Opt
         pool.clone(), store_dyn, Arc::new(pocket_data_mining::progress::MiningProgress::new()),
         min, out.clone(), k, threads, 1, usize::MAX, guard.clone(), stats,
     );
+    if let Some(p) = partition { ctx.tree_partition = p; }
     if let Err(e) = algo.run(DataSource::file(db_path), &mut ctx) {
         // A clean refusal by admission control (budget below what cannot be spilled) is an
         // acceptable outcome only at the tiny budget; anything else is a failure.
@@ -477,4 +485,47 @@ fn rematerialisation_is_exact() {
         dropped_all += dropped_total;
     }
     assert!(dropped_all > 0, "expected lists to be dropped (rematerialised) at this budget");
+}
+
+/// Partition projection (tree miners mine one partition tree per item instead of the global
+/// tree) gives exactly the brute-force result, within budget, at both budgets and thread counts.
+#[test]
+fn tree_partitions_are_exact() {
+    for (seed, db, min) in [
+        (31u64, random_db(31, 900, 40, 8), 300i64),
+        (32, random_db(32, 300, 14, 10), 700),
+        (33, cheap_frequent_db(33, 700), 400),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.txt");
+        write_db(&db, &path);
+        let all = brute_force(&db);
+        let expected = huis(&all, min);
+        for &budget in &BUDGETS {
+            for threads in [1, 4] {
+                for (name, mut algo) in [
+                    ("ihup", Box::new(ihup::Ihup::new()) as Box<dyn HuimAlgorithm>),
+                    ("hup-tree", Box::new(hup_tree::HupTree::new())),
+                    ("up-growth", Box::new(up_growth::UpGrowth::new())),
+                    ("up-growth+", Box::new(up_growth::UpGrowthPlus::new())),
+                    ("hui-trie", Box::new(hui_trie::HuiTrie::new())),
+                ] {
+                    let r = run_with(algo.as_mut(), &path, min, None, budget, threads, Some(PartitionMode::Always));
+                    assert!(!r.refused, "{name}: refused at budget {budget} (seed {seed})");
+                    let got: BTreeSet<_> = r.out.iter().cloned().collect();
+                    assert_eq!(r.out.len(), got.len(), "{name}: duplicate output (seed {seed})");
+                    assert_eq!(got, expected, "{name} partitioned: wrong HUIs (seed {seed}, budget {budget}, threads {threads})");
+                    assert!(r.peak <= budget + threads * FORCED_SLACK, "{name} partitioned: ledger peak {} over budget {budget}", r.peak);
+                    assert_eq!(r.leaked, 0, "{name} partitioned leaked (seed {seed})");
+                }
+                let k = 25;
+                let r = run_with(&mut tku::Tku::new(false), &path, 0, Some(k as u64), budget, threads, Some(PartitionMode::Always));
+                assert!(!r.refused, "tku: refused at budget {budget} (seed {seed})");
+                let mut got: Vec<i64> = r.out.iter().map(|x| x.1).collect();
+                got.sort_unstable_by(|a, b| b.cmp(a));
+                assert_eq!(got, top_k(&all, k), "tku partitioned top-k (seed {seed}, budget {budget})");
+                for (s, u) in &r.out { assert_eq!(all.get(s), Some(u), "tku partitioned: wrong utility for {s:?}"); }
+            }
+        }
+    }
 }

@@ -23,6 +23,9 @@ pub struct MiningContext {
     /// What to do with a new utility list when the budget has no room: spill it, or drop it
     /// and recompute it from its parents (cost model). From AIR_HUIM_REMAT (auto|off|always).
     pub remat: crate::mining::components::ul_join::RematMode,
+    /// Tree miners: partition projection when the global tree would not fit (auto), always,
+    /// or never. From AIR_HUIM_TREE_PARTITION.
+    pub tree_partition: crate::mining::components::tree_partition::PartitionMode,
 }
 
 impl MiningContext {
@@ -41,7 +44,8 @@ impl MiningContext {
     ) -> Self {
         let chunk_bytes = pool.budget_bytes() / 4;
         Self { pool, store, progress, min_utility, output_path, k, threads, chunk_bytes, min_length, max_length, guard, stats,
-               remat: crate::mining::components::ul_join::RematMode::from_env() }
+               remat: crate::mining::components::ul_join::RematMode::from_env(),
+               tree_partition: crate::mining::components::tree_partition::PartitionMode::from_env() }
     }
 
     /// Compute how many 1-itemset utility lists can fit in the chunk budget.
@@ -63,6 +67,9 @@ impl MiningContext {
         let safety = (available / 5).min(500 * 1024 * 1024);
         let safe = available.saturating_sub(safety);
         if safe < self.guard.budget() {
+            eprintln!("[safety-net] only {:.0} MB of RAM is available; ledger budget lowered from {:.0} MB to {:.0} MB",
+                      available as f64 / 1048576.0, self.guard.budget() as f64 / 1048576.0,
+                      safe.max(self.guard.used()) as f64 / 1048576.0);
             self.guard.set_budget(safe.max(self.guard.used()));
         }
         if safe < self.pool.budget_bytes() {

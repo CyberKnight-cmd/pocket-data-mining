@@ -84,6 +84,29 @@ byte written / read): spill ≈ size × (write × AIR_HUIM_WRITE_WEIGHT + reads 
 uses × parent sizes × CPU cost. `AIR_HUIM_REMAT=auto|off|always`; each run reports lists dropped,
 bytes not written and entries recomputed. On flash storage (SD cards) this trades CPU for writes.
 
+## 2.6 Tree miners: partition projection instead of spilled trees
+A prefix tree that does not fit cannot be mined from spilled node pages: every parent or
+node-link step can be a page load. UP-Growth+ on retail at 32 MB made 3.3M pool misses and read
+207 GB of pages for a 26 MB tree (140 s, against 2.8 s at 64 MB). When the tree's size bound
+(one node per item occurrence) exceeds the free budget, the tree miners (IHUP, HUI-Trie,
+HUP-Tree, UP-Growth, UP-Growth+, TKU) switch to partition projection
+(`tree_partition.rs`, after Han, Pei & Yin 2000):
+
+* each filtered transaction, in tree order, is written to the partition of its last item;
+* items are processed from the bottom of the tree order up: partition *i* holds exactly the
+  transactions containing *i*, cut after *i*; a small tree of them is built in RAM and *i* is
+  mined on it with the unchanged per-item mining code; then each row loses *i* and moves to the
+  partition of its new last item;
+* partitions are grouped into about sqrt(n) rank ranges so only about 2 sqrt(n) write buffers
+  are open, sized from a quarter of the free budget.
+
+All I/O is sequential. A partition tree has the same node TWUs, node utilities, counts and
+utility vectors for the mined item as the global tree; for UP-Growth+ / TKU an ancestor's
+minimal node utility is taken over the partition's transactions only, which is at least as large
+(a tighter, still valid bound). Phase 2 verification makes the output exact either way.
+`AIR_HUIM_TREE_PARTITION=auto|always|off`. Result: retail/UP-Growth+ at 32 MB in 4.3 s, at 24 MB
+in 4.7 s, identical output and no pool traffic.
+
 ## 3. Buffer pool (`src/buffer_pool/pool.rs`)
 * Charges the shared ledger; if it cannot make room (everything pinned or the budget held by
   native structures), `insert_page` **writes through** to disk instead of caching.
@@ -106,7 +129,7 @@ search does not create one file and one frame per tiny list.
 | EUCS | built in as many partitions as needed, compacted per partition | disabled (never truncated — a partial EUCS prunes wrongly) |
 | EFIM database (`PagedDb`) | RAM segments | pool pages |
 | EFIM projections | reservation | pool page |
-| Tree nodes (`NodeArena`) | RAM pages | pool pages |
+| Tree nodes (`NodeArena`) | RAM pages | pool pages; a global tree that does not fit is not built (partition projection, 2.6) |
 | Two-phase candidates | — | always on disk (`ItemsetSpool`), verified in budget-sized batches |
 | Filtered DB for re-scans (`TxSpool`) | — | binary pages in the chunk store |
 

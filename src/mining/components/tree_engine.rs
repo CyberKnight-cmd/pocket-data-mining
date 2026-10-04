@@ -437,18 +437,21 @@ impl TwuTree {
     }
 }
 
+/// Mine every item of `tree` (or only `only`, for a partition's tree) with `prefix`.
 fn mine_twu_tree(
     tree: &TwuTree,
     arena: &mut NodeArena<TwuNode>,
     prefix: &mut Vec<ItemId>,
     out: &mut ItemsetSpool,
     ctx: &MiningContext,
+    only: Option<ItemId>,
 ) -> io::Result<()> {
     let min = ctx.min_utility;
     ctx.progress.set_active_prefix(prefix);
     ctx.progress.current_depth.store(prefix.len(), Ordering::Relaxed);
     let mut path: Vec<ItemId> = Vec::new();
     for &item in tree.order.iter().rev() {
+        if only.is_some_and(|o| o != item) { continue; }
         // Pass A: sum of TWU and local TWU of the items on the prefix paths.
         let mut sum = 0;
         let mut local: HashMap<ItemId, Utility> = HashMap::new();
@@ -496,7 +499,7 @@ fn mine_twu_tree(
             cur = node.node_link;
         }
         drop(local);
-        mine_twu_tree(&cond, arena, prefix, out, ctx)?;
+        mine_twu_tree(&cond, arena, prefix, out, ctx, None)?;
         drop(cond);
         arena.next = saved;
         prefix.pop();
@@ -519,7 +522,6 @@ pub fn run_twu_tree_miner(name: &str, path: &std::path::Path, ctx: &mut MiningCo
 }
 
 pub fn run_twu_tree_miner_with(name: &str, path: &std::path::Path, ctx: &mut MiningContext, verifier: Verifier) -> io::Result<u64> {
-    use crate::preprocessing::db_reader::DbReader;
     ctx.apply_os_safety_net();
     let min = ctx.min_utility;
     ctx.progress.set_stage("Phase 1: Computing 1-itemset TWUs");
@@ -529,29 +531,38 @@ pub fn run_twu_tree_miner_with(name: &str, path: &std::path::Path, ctx: &mut Min
     admit_tree(ctx, name, &twu, min, &|_| 0)?;
 
     ctx.progress.set_stage(&format!("Phase 1: Building {} tree", name));
-    let mut arena: NodeArena<TwuNode> = NodeArena::new(&ctx.pool, &ctx.guard);
-    let mut tree = TwuTree::new(&mut arena, valid, &ctx.guard)?;
-    let mut db = TxSpool::new(Arc::clone(&ctx.store), &ctx.guard);
-    let mut row: Vec<(ItemId, Utility)> = Vec::new();
-    let mut items: Vec<ItemId> = Vec::new();
-    for tx in DbReader::new(io::BufReader::new(std::fs::File::open(path)?)) {
-        let tx = tx?;
-        row.clear();
-        row.extend(tx.items.iter().filter(|e| twu.get(&e.item).copied().unwrap_or(0) >= min).map(|e| (e.item, e.utility)));
-        if row.is_empty() { continue; }
-        db.push(&row, tx.transaction_utility)?;
-        items.clear();
-        items.extend(row.iter().map(|r| r.0));
-        items.sort_by(|a, b| twu[b].cmp(&twu[a]).then_with(|| a.cmp(b)));
-        tree.insert(&mut arena, &items, tx.transaction_utility)?;
-    }
-    db.seal()?;
-
-    ctx.progress.set_stage(&format!("Phase 1: Mining {} tree ({} node pages in RAM)", name, arena.resident_pages()));
+    let db = spool_db(path, &twu, min, ctx)?;
+    let rank: HashMap<ItemId, u32> = valid.iter().enumerate().map(|(k, &i)| (i, k as u32)).collect();
+    let (nodes, _) = super::tree_partition::tree_size(&db, &rank)?;
     let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
-    mine_twu_tree(&tree, &mut arena, &mut Vec::new(), &mut cands, ctx)?;
-    drop(tree);
-    drop(arena);
+    if ctx.tree_partition.use_partitions(nodes as usize * std::mem::size_of::<TwuNode>(), ctx) {
+        // The global tree would not fit: mine one item at a time on its partition's tree.
+        super::tree_partition::mine_partitioned(&db, &rank, ctx, |item, part, present| {
+            let mut arena: NodeArena<TwuNode> = NodeArena::new(&ctx.pool, &ctx.guard);
+            let mut tree = TwuTree::new(&mut arena, present.to_vec(), &ctx.guard)?;
+            let mut err = None;
+            part.scan(|its, _, tu| match tree.insert(&mut arena, its, tu) {
+                Ok(()) => true,
+                Err(e) => { err = Some(e); false }
+            })?;
+            if let Some(e) = err { return Err(e); }
+            mine_twu_tree(&tree, &mut arena, &mut Vec::new(), &mut cands, ctx, Some(item))
+        })?;
+    } else {
+        let mut arena: NodeArena<TwuNode> = NodeArena::new(&ctx.pool, &ctx.guard);
+        let mut tree = TwuTree::new(&mut arena, valid, &ctx.guard)?;
+        let mut items: Vec<ItemId> = Vec::new();
+        let mut err = None;
+        db.scan(|its, _, tu| {
+            items.clear();
+            items.extend_from_slice(its);
+            items.sort_by_key(|i| rank[i]);
+            match tree.insert(&mut arena, &items, tu) { Ok(()) => true, Err(e) => { err = Some(e); false } }
+        })?;
+        if let Some(e) = err { return Err(e); }
+        ctx.progress.set_stage(&format!("Phase 1: Mining {} tree ({} node pages in RAM)", name, arena.resident_pages()));
+        mine_twu_tree(&tree, &mut arena, &mut Vec::new(), &mut cands, ctx, None)?;
+    }
     crate::mining::core::memory_guard::release_free_memory();
 
     match verifier {
@@ -725,15 +736,17 @@ impl HupTreeS {
     }
 }
 
+/// Mine every item of `tree` (or only `only`, for a partition's tree) with `prefix`.
 fn mine_hup(tree: &HupTreeS, arena: &mut NodeArena<HupNode>, vals: &mut NodeArena<Utility>,
             prefix: &mut Vec<ItemId>, w: &mut crate::mining::core::result_writer::ResultWriter,
-            ctx: &MiningContext) -> io::Result<()> {
+            ctx: &MiningContext, only: Option<ItemId>) -> io::Result<()> {
     let min = ctx.min_utility;
     ctx.progress.set_active_prefix(prefix);
     ctx.progress.current_depth.store(prefix.len(), Ordering::Relaxed);
     let mut pu: Vec<Utility> = Vec::new();
     let mut pi: Vec<ItemId> = Vec::new();
     for &item in tree.order.iter().rev() {
+        if only.is_some_and(|o| o != item) { continue; }
         // Exact utility and TWU of prefix + item, straight from the nodes' vectors.
         let mut util = 0;
         let mut twu = 0;
@@ -796,7 +809,7 @@ fn mine_hup(tree: &HupTreeS, arena: &mut NodeArena<HupNode>, vals: &mut NodeAren
                 cur = n.node_link;
             }
             drop(local);
-            mine_hup(&cond, arena, vals, prefix, w, ctx)?;
+            mine_hup(&cond, arena, vals, prefix, w, ctx, None)?;
             drop(cond);
             arena.next = saved_n;
             vals.next = saved_v;
@@ -809,7 +822,6 @@ fn mine_hup(tree: &HupTreeS, arena: &mut NodeArena<HupNode>, vals: &mut NodeAren
 /// HUP-Tree / HUP-Growth (Lin, Hong & Lu, 2011): one-phase exact mining. Utilities of every
 /// itemset are read from the per-node utility vectors, so no candidate phase or rescan is needed.
 pub fn run_hup_tree(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u64> {
-    use crate::preprocessing::db_reader::DbReader;
     ctx.apply_os_safety_net();
     let min = ctx.min_utility;
     ctx.progress.set_stage("HUP-Tree: TWU");
@@ -821,27 +833,46 @@ pub fn run_hup_tree(path: &std::path::Path, ctx: &mut MiningContext) -> io::Resu
     let max_path = order.len().min(8192);
     admit_tree(ctx, "HUP-Tree", &twu, min, &|b| ((b / 64).clamp(4 * 1024, 64 * 1024)).max(max_path * 8) + 16)?;
     ctx.progress.set_stage("HUP-Tree: building tree");
-    let mut arena: NodeArena<HupNode> = NodeArena::new(&ctx.pool, &ctx.guard);
-    let mut vals: NodeArena<Utility> = NodeArena::with_min_slots(&ctx.pool, &ctx.guard, max_path);
-    let mut tree = HupTreeS::new(&mut arena, order, &ctx.guard)?;
-    let mut row: Vec<(ItemId, Utility)> = Vec::new();
-    let mut items: Vec<ItemId> = Vec::new();
-    let mut utils: Vec<Utility> = Vec::new();
-    for tx in DbReader::new(io::BufReader::new(std::fs::File::open(path)?)) {
-        let tx = tx?;
-        row.clear();
-        row.extend(tx.items.iter().filter(|e| twu.get(&e.item).copied().unwrap_or(0) >= min).map(|e| (e.item, e.utility)));
-        if row.is_empty() { continue; }
-        row.sort_by(|a, b| twu[&b.0].cmp(&twu[&a.0]).then_with(|| a.0.cmp(&b.0)));
-        items.clear();
-        utils.clear();
-        for &(i, u) in &row { items.push(i); utils.push(u); }
-        tree.insert(&mut arena, &mut vals, &items, &utils, 0, tx.transaction_utility)?;
-    }
-    ctx.progress.set_stage(&format!("HUP-Tree: mining ({} node pages, {} vector pages in RAM)",
-                                    arena.resident_pages(), vals.resident_pages()));
+    let db = spool_db(path, &twu, min, ctx)?;
+    let rank: HashMap<ItemId, u32> = order.iter().enumerate().map(|(k, &i)| (i, k as u32)).collect();
+    let (nodes, depths) = super::tree_partition::tree_size(&db, &rank)?;
+    let tree_bytes = nodes as usize * std::mem::size_of::<HupNode>() + depths as usize * 8;
     let mut w = ctx.open_writer()?;
-    mine_hup(&tree, &mut arena, &mut vals, &mut Vec::new(), &mut w, ctx)?;
+    // Rows sorted by rank, with their utilities: (items, utilities) for the tree insert.
+    let insert_rows = |tree: &mut HupTreeS, arena: &mut NodeArena<HupNode>, vals: &mut NodeArena<Utility>,
+                       src: &TxSpool, sort: bool| -> io::Result<()> {
+        let mut row: Vec<(ItemId, Utility)> = Vec::new();
+        let (mut items, mut utils): (Vec<ItemId>, Vec<Utility>) = (Vec::new(), Vec::new());
+        let mut err = None;
+        src.scan(|its, us, tu| {
+            row.clear();
+            row.extend(its.iter().copied().zip(us.iter().copied()));
+            if sort { row.sort_by_key(|e| rank[&e.0]); }
+            items.clear();
+            utils.clear();
+            for &(i, u) in &row { items.push(i); utils.push(u); }
+            match tree.insert(arena, vals, &items, &utils, 0, tu) { Ok(()) => true, Err(e) => { err = Some(e); false } }
+        })?;
+        err.map_or(Ok(()), Err)
+    };
+    if ctx.tree_partition.use_partitions(tree_bytes, ctx) {
+        // The global tree would not fit: mine one item at a time on its partition's tree.
+        super::tree_partition::mine_partitioned(&db, &rank, ctx, |item, part, present| {
+            let mut arena: NodeArena<HupNode> = NodeArena::new(&ctx.pool, &ctx.guard);
+            let mut vals: NodeArena<Utility> = NodeArena::with_min_slots(&ctx.pool, &ctx.guard, max_path);
+            let mut tree = HupTreeS::new(&mut arena, present.to_vec(), &ctx.guard)?;
+            insert_rows(&mut tree, &mut arena, &mut vals, part, false)?;
+            mine_hup(&tree, &mut arena, &mut vals, &mut Vec::new(), &mut w, ctx, Some(item))
+        })?;
+    } else {
+        let mut arena: NodeArena<HupNode> = NodeArena::new(&ctx.pool, &ctx.guard);
+        let mut vals: NodeArena<Utility> = NodeArena::with_min_slots(&ctx.pool, &ctx.guard, max_path);
+        let mut tree = HupTreeS::new(&mut arena, order, &ctx.guard)?;
+        insert_rows(&mut tree, &mut arena, &mut vals, &db, true)?;
+        ctx.progress.set_stage(&format!("HUP-Tree: mining ({} node pages, {} vector pages in RAM)",
+                                        arena.resident_pages(), vals.resident_pages()));
+        mine_hup(&tree, &mut arena, &mut vals, &mut Vec::new(), &mut w, ctx, None)?;
+    }
     w.finalize()?;
     Ok(ctx.progress.huis_found.load(Ordering::Relaxed))
 }
@@ -1093,6 +1124,61 @@ fn build_up_tree(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, ctx
     Ok((arena, tree, miu))
 }
 
+/// Phase 1 of UP-Growth / UP-Growth+ / TKU: candidates from the global UP-tree, or, when that
+/// tree would not fit, from one partition tree per item (see `tree_partition`). Partition
+/// trees hold the same node utilities and counts for the mined item; for UP-Growth+ an
+/// ancestor's minimal node utility is taken over the partition's transactions only, which is
+/// at least as large (a tighter, still valid DLU/DLN). Phase 2 makes the output exact either way.
+fn mine_up(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, variant: UpVariant,
+           ctx: &MiningContext, cands: &mut ItemsetSpool) -> io::Result<()> {
+    let mut valid: Vec<(ItemId, Utility)> = twu.iter().filter(|&(_, &t)| t >= min).map(|(&i, &t)| (i, t)).collect();
+    valid.sort_by_key(|&(i, t)| (std::cmp::Reverse(t), i));
+    let rank: HashMap<ItemId, u32> = valid.iter().enumerate().map(|(k, &(i, _))| (i, k as u32)).collect();
+    drop(valid);
+    let (nodes, _) = super::tree_partition::tree_size(db, &rank)?;
+    if !ctx.tree_partition.use_partitions(nodes as usize * std::mem::size_of::<UpNode>(), ctx) {
+        ctx.progress.set_stage("Phase 2: Global UP-Tree Construction (DGN)");
+        let (mut arena, tree, miu) = build_up_tree(db, twu, min, ctx)?;
+        ctx.progress.set_stage(&format!("Phase 3: CPB Tree Mining ({} node pages in RAM)", arena.resident_pages()));
+        let miner = UpMiner { variant, miu: &miu, ctx, min };
+        for item in tree.mining_order() {
+            miner.mine(&tree, &mut arena, item, &mut Vec::new(), cands)?;
+        }
+        return Ok(());
+    }
+    // Global minimum item utilities (UP-Growth's DLU/DLN), over the promising items.
+    let mut miu: HashMap<ItemId, Utility> = HashMap::new();
+    db.scan(|its, us, _| {
+        for (i, &u) in its.iter().zip(us) {
+            if rank.contains_key(i) {
+                let m = miu.entry(*i).or_insert(u);
+                *m = (*m).min(u);
+            }
+        }
+        true
+    })?;
+    let miner = UpMiner { variant, miu: &miu, ctx, min };
+    let mut prefix_nu: Vec<Utility> = Vec::new();
+    super::tree_partition::mine_partitioned(db, &rank, ctx, |item, part, present| {
+        let mut arena: NodeArena<UpNode> = NodeArena::new(&ctx.pool, &ctx.guard);
+        let items: Vec<(ItemId, Utility)> = present.iter().map(|&i| (i, twu[&i])).collect();
+        let mut tree = UpTree::new(&mut arena, &items, &ctx.guard)?;
+        drop(items);
+        let mut err = None;
+        part.scan(|its, us, _| {
+            prefix_nu.clear();
+            let mut acc = 0;
+            for &u in us { acc += u; prefix_nu.push(acc); }
+            match tree.insert(&mut arena, its, 1, |k| prefix_nu[k], |k| us[k]) {
+                Ok(()) => true,
+                Err(e) => { err = Some(e); false }
+            }
+        })?;
+        if let Some(e) = err { return Err(e); }
+        miner.mine(&tree, &mut arena, item, &mut Vec::new(), cands)
+    })
+}
+
 /// Spool every transaction restricted to items with TWU >= `min` (all items when min = 0).
 fn spool_db(path: &std::path::Path, twu: &HashMap<ItemId, Utility>, min: Utility, ctx: &MiningContext) -> io::Result<TxSpool> {
     use crate::preprocessing::db_reader::DbReader;
@@ -1116,17 +1202,8 @@ pub fn run_up_growth(path: &std::path::Path, ctx: &mut MiningContext, variant: U
     let twu = item_twus(path)?;
     admit_tree(ctx, if variant == UpVariant::Growth { "UP-Growth" } else { "UP-Growth+" }, &twu, min, &|_| 0)?;
     let db = spool_db(path, &twu, min, ctx)?;
-    ctx.progress.set_stage("Phase 2: Global UP-Tree Construction (DGN)");
-    let (mut arena, tree, miu) = build_up_tree(&db, &twu, min, ctx)?;
-
-    ctx.progress.set_stage(&format!("Phase 3: CPB Tree Mining ({} node pages in RAM)", arena.resident_pages()));
     let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
-    let miner = UpMiner { variant, miu: &miu, ctx, min };
-    for item in tree.mining_order() {
-        miner.mine(&tree, &mut arena, item, &mut Vec::new(), &mut cands)?;
-    }
-    drop(tree);
-    drop(arena);
+    mine_up(&db, &twu, min, variant, ctx, &mut cands)?;
     crate::mining::core::memory_guard::release_free_memory();
 
     ctx.progress.set_stage("Phase 4: Exact Utility Computation");
@@ -1166,14 +1243,8 @@ pub fn run_tku(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u6
     admit_tree(ctx, "TKU", &twu, border0, &|_| 0)?;
 
     ctx.progress.set_stage(&format!("TKU: Phase 1 (border {})", border0));
-    let (mut arena, tree, miu) = build_up_tree(&db_all, &twu, border0, ctx)?;
     let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
-    let miner = UpMiner { variant: UpVariant::GrowthPlus, miu: &miu, ctx, min: border0 };
-    for item in tree.mining_order() {
-        miner.mine(&tree, &mut arena, item, &mut Vec::new(), &mut cands)?;
-    }
-    drop(tree);
-    drop(arena);
+    mine_up(&db_all, &twu, border0, UpVariant::GrowthPlus, ctx, &mut cands)?;
 
     ctx.progress.set_stage("TKU: Phase 2 (exact utilities, SE)");
     let border = AtomicI64::new(border0);
