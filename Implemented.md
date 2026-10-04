@@ -43,6 +43,7 @@ This document details the implementation status of various High Utility Itemset 
     *   **Details**: HUI-Miner search plus HUP-Miner's two strategies: PU-prune (per-partition utility sums of each list; a join is skipped when the partition-wise bound of P·x·y is below the threshold) and LA-prune (a join is abandoned once its running bound drops below it). Partitions: `AIR_HUIM_PARTITIONS` (default 8).
 *   **mHUIMiner**: **Implemented (partially faithful)**
     *   **Details**: HUI-Miner that does not build utility lists for itemsets absent from the database. The paper uses an IHUP-tree for this at the level of whole prefixes; here a budget-aware pair-existence structure does it at the pair level. Same output as HUI-Miner, fewer joins on sparse data.
+    *   **SPMF comparison caveat**: SPMF's mHUIMiner (the jar used in `bench/`) mislabels itemsets in its output. On retail (min_util 1491) it prints the correct number of HUIs (22,479) with exactly the correct multiset of utility values, but 16,308 of the itemsets are wrong and 5,280 contain the same item twice; all 300 sampled disagreements were checked by brute force (SPMF's FHM and our output are correct). On chainstore (81 short HUIs) its output is correct. The search is right and the item labels are corrupted, which points to a bug in how SPMF builds the output prefix. SPMF mHUIMiner runs are therefore compared on time and memory only, not on output.
 
 ## ⚡ Family 4: Projection-Based (The Speed Kings)
 

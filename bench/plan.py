@@ -31,10 +31,10 @@ ONLY = set(os.environ.get("PLAN_ONLY", "").split(",")) - {""}
 
 # Algorithm -> code version. Bump when an algorithm's implementation changes.
 CODE = {
-    "two-phase": "tp-2", "ihup": "twu-2", "fhm": "ul-2", "fhm-plus": "ul-2", "hui-miner": "ul-2",
+    "two-phase": "tp-3", "ihup": "twu-2", "fhm": "ul-2", "fhm-plus": "ul-2", "hui-miner": "ul-2",
     "efim-closed": "proj-2", "tko": "ul-2",
     "hup-miner": "hup-1", "mhuiminer": "mhui-1", "haui-miner": "haui-1",
-    "huim-ga": "heur-2", "huim-bpso": "heur-2", "mhui-aco": "heur-2",
+    "huim-ga": "heur-3", "huim-bpso": "heur-3", "mhui-aco": "heur-3",
     # re-implemented as distinct algorithms (round 2)
     "efim": "efim-merge-1", "up-growth": "upg-dlu-1", "up-growth-plus": "upgp-1",
     "hup-tree": "huptree-1", "hui-trie": "huitrie-1", "tku": "tku-1", "rept": "rept-1",
@@ -43,7 +43,8 @@ CODE = {
 PENDING = set()
 # r2: constant-memory (streaming) joins, admission control, margin 7 MB + 3%.
 # r3: cost-based rematerialisation (AIR_HUIM_REMAT=auto by default) in the utility-list engine.
-RUNTIME = "r3"
+# r4: admission control in every engine, budget-scaled buffers, background heap trimmer.
+RUNTIME = "r4"
 HEURISTIC = {"huim-ga", "huim-bpso", "mhui-aco"}
 
 SPMF = {  # air algo -> (SPMF name, args(min_util, k))
@@ -152,6 +153,9 @@ def main():
         kind = {"efim-closed": "closed", "haui-miner": "avg", "huim-mmu": "mmu", "shuim": "windows"}.get(kw["algo"], "hui")
         kw["ref_key"] = f"{kw['dataset']}|{kw.get('min_util')}|{kind}"
         if kw["algo"] in ("tko", "tku", "rept"):
+            kw["compare"] = "none"
+        elif kw["algo"] == "mhuiminer" and kw["impl"] == "spmf":
+            # SPMF's mHUIMiner mislabels itemsets in its output (Implemented.md): time/memory only.
             kw["compare"] = "none"
         elif kw["algo"] in HEURISTIC:
             kw["compare"] = "subset"

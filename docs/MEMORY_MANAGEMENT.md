@@ -43,16 +43,35 @@ join's working set is about four chunks whatever the list lengths. The 1-itemset
 streams spilled runs (written in bounded record pieces) straight into chunk writers.
 
 ## 2.4 Admission control (`MiningContext::admit`)
-Before mining, the utility-list and EFIM engines estimate what cannot be spilled: a fixed part
-(per-item headers and maps, builder buffers, output queue) and a per-worker part (join chunks,
-spill page, extension headers / utility bins). Admission then
+Every engine, right after its first pass (before anything that could spill is loaded), estimates
+what it cannot spill: a fixed part and a per-worker part, both as functions of the budget.
+Admission then
 * refuses the run up front, with the smallest workable budget, if even one worker does not fit
   (e.g. chainstore/FHM: "Use at least -b 19"; 19 MB then runs exactly with a 15.4 MB peak);
 * lowers the thread count until the per-worker sets use at most half of what is free.
 Below that floor the process would otherwise exceed its budget (or be killed by a kernel limit).
 
+| Engine (algorithms) | Fixed | Per worker |
+|---|---|---|
+| Utility lists (FHM, FHM+, HUI-Miner, HUP-Miner, mHUIMiner, TKO, REPT, HAUI-Miner, HUIM-MMU, IncFHM; SHUIM per window) | per-item list headers, builder segments, DB spool (EUCS / pairs), output queue | one streaming join (4 chunks), arena page, extension headers |
+| Two-Phase | per-item list headers, builder segments, output queue | one streaming join, arena page, list headers on the DFS path |
+| EFIM | renaming maps, su / projection-size arrays | utility bins, pinned and open segments, smallest first-level batch |
+| EFIM-Closed | per-item maps, DB builder segment, output queue | 2 x the largest projection (a spilled projection is loaded while its child is built), lu/su maps, one DB segment, smallest batch |
+| Trees (IHUP, HUI-Trie, HUP-Tree, UP-Growth, UP-Growth+, TKU) | per-item maps, DB and candidate spool buffers, two node pages, output queue | smallest phase-2 candidate batch, spool read buffers |
+| Heuristics (HUIM-GA, HUIM-BPSO, MHUI-ACO) | per-item index and arrays, smallest cache / found-set, pass-2 buffers | one chunk per selected item (streaming intersection), one DB segment |
+
+Buffers that used to be fixed now scale with the budget, so the floor scales too: spool segments
+(1/32 of the budget, 1 KB-1 MB), node pages (1/64, 4-64 KB), DB segments (1/64, 4-256 KB),
+minimum phase-2 batch (1/16, 8-128 KB), EFIM's minimum first-level batch (4 segments).
+`tests/budget_integration.rs` checks that all 23 algorithms refuse cleanly at 8 KB, and run
+exactly at 96 KB with the ledger peak at most 64 KB per thread above the budget.
+
 The practical floor is dominated by the process itself (~5 MB resident before any work) and the
 margin; on chainstore the unspillable mining state is under 3 MB.
+
+Heuristics keep the set of HUIs already written (so each is output once) exactly while the budget
+lets it grow; then it becomes a Bloom filter of the same size. A false positive can only skip a
+genuinely new HUI (recall), never output a wrong or duplicate one (precision).
 
 ## 2.5 Recompute instead of spill (cost-based rematerialisation)
 A derived utility list can always be rebuilt from its parents: list(P·x·y) =
@@ -96,6 +115,14 @@ glibc keeps freed memory in per-thread arenas; with a churning DFS that left RSS
 live data. `tune_allocator_for_budget()` (called first thing in `main`) sets one malloc arena and
 low trim/mmap thresholds; `release_free_memory()` trims after phases that free a lot. Set
 `AIR_HUIM_MALLOC_ARENAS=N` to trade memory for ~10% speed with more threads.
+
+With several threads in one arena, long-lived blocks (cached pages, in-RAM lists) interleave with
+short-lived join chunks, and the freed holes stay resident (glibc returns only the top of the
+heap on `free`): Two-Phase on chainstore at 64 MB with 4 threads reached 80 MB RSS with a 41 MB
+ledger. A background trimmer (`spawn_heap_trimmer`) calls `malloc_trim(0)`, which releases free
+pages anywhere in the heap, whenever RSS exceeds the ledger by more than max(8 MB, budget / 10);
+checked every 250 ms. (Lowering the mmap threshold to 64 KB also fixed it, but cost ~80% run
+time.) `AIR_HUIM_MMAP_THRESHOLD` overrides the threshold for experiments.
 
 ## 6. Observability
 * The TUI shows process RSS and ledger use against the budget, plus the pool's share.
