@@ -6,8 +6,9 @@ usage: calibrate_large.py BINARY OUT.json NAME=PATH[:TOTAL_UTILITY] ...
 For each dataset, runs Air-HUIM FHM with a generous budget (20 GB, 16 threads, so nothing
 spills) at decreasing fractions of the total utility, recording time and HUI count, and stops
 once a run takes longer than 300 s or finds more than 100,000 HUIs. The chosen threshold is the
-lowest one that finished within 120 s with at least 100 HUIs: big enough to be a real workload,
-small enough that the slower algorithms and SPMF can finish within the per-run cap.
+lowest one that finished within 300 s with at least 20 HUIs: big enough to be a real workload,
+small enough that the slower algorithms and SPMF can finish within the per-run cap. (On LGSR
+reading the 47M transactions alone takes ~70 s, so a 120 s / 100-HUI rule selects nothing.)
 TOTAL_UTILITY defaults to a scan of the file.
 """
 import json, os, subprocess, sys, tempfile, time
@@ -55,7 +56,7 @@ def main():
             print(name, trials[-1], flush=True)
             if secs > 300 or n > 100_000 or n < 0:
                 break
-        ok = [t for t in trials if 0 <= t["secs"] <= 120 and t["huis"] >= 100]
+        ok = [t for t in trials if 0 <= t["secs"] <= 300 and t["huis"] >= 20]
         chosen = ok[-1] if ok else None
         res[name] = {"path": path, "total_utility": tu, "trials": trials,
                      "chosen": chosen["min_util"] if chosen else None,

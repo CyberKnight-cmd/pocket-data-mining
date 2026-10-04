@@ -31,20 +31,21 @@ ONLY = set(os.environ.get("PLAN_ONLY", "").split(",")) - {""}
 
 # Algorithm -> code version. Bump when an algorithm's implementation changes.
 CODE = {
-    "two-phase": "tp-3", "ihup": "twu-2", "fhm": "ul-2", "fhm-plus": "ul-2", "hui-miner": "ul-2",
-    "efim-closed": "proj-2", "tko": "ul-2",
+    "two-phase": "tp-3", "ihup": "twu-3", "fhm": "ul-2", "fhm-plus": "ul-2", "hui-miner": "ul-2",
+    "efim-closed": "proj-3", "tko": "ul-2",
     "hup-miner": "hup-1", "mhuiminer": "mhui-1", "haui-miner": "haui-1",
     "huim-ga": "heur-3", "huim-bpso": "heur-3", "mhui-aco": "heur-3",
     # re-implemented as distinct algorithms (round 2)
-    "efim": "efim-merge-1", "up-growth": "upg-dlu-1", "up-growth-plus": "upgp-1",
-    "hup-tree": "huptree-1", "hui-trie": "huitrie-1", "tku": "tku-1", "rept": "rept-1",
+    "efim": "efim-merge-1", "up-growth": "upg-dlu-2", "up-growth-plus": "upgp-2",
+    "hup-tree": "huptree-2", "hui-trie": "huitrie-2", "tku": "tku-2", "rept": "rept-1",
     "huim-mmu": "mmu-1", "shuim": "shuim-1", "incfhm": "incfhm-1",
 }
 PENDING = set()
 # r2: constant-memory (streaming) joins, admission control, margin 7 MB + 3%.
 # r3: cost-based rematerialisation (AIR_HUIM_REMAT=auto by default) in the utility-list engine.
 # r4: admission control in every engine, budget-scaled buffers, background heap trimmer.
-RUNTIME = "r4"
+# r5: tree miners use partition projection when the tree does not fit; byte-level SPMF parser.
+RUNTIME = "r5"
 HEURISTIC = {"huim-ga", "huim-bpso", "mhui-aco"}
 
 SPMF = {  # air algo -> (SPMF name, args(min_util, k))

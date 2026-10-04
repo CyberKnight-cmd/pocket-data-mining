@@ -104,8 +104,26 @@ All I/O is sequential. A partition tree has the same node TWUs, node utilities, 
 utility vectors for the mined item as the global tree; for UP-Growth+ / TKU an ancestor's
 minimal node utility is taken over the partition's transactions only, which is at least as large
 (a tighter, still valid bound). Phase 2 verification makes the output exact either way.
-`AIR_HUIM_TREE_PARTITION=auto|always|off`. Result: retail/UP-Growth+ at 32 MB in 4.3 s, at 24 MB
-in 4.7 s, identical output and no pool traffic.
+`AIR_HUIM_TREE_PARTITION=auto|always|off`.
+
+Measured (laptop, 4 threads requested, 300 s cap; identical output at every budget and mode):
+
+| dataset / algorithm | off, 32 MB | auto, 24 MB | auto, 32 MB | auto, 64 MB | auto, 256 MB | off, 256 MB |
+|---|---|---|---|---|---|---|
+| chainstore / UP-Growth+ | > 300 s | 17.8 s | 15.5 s | 13.5 s | 14.4 s | 32.1 s |
+| chainstore / UP-Growth | > 300 s | 18.2 s | 15.9 s | 14.0 s | 15.2 s | 29.9 s |
+| chainstore / IHUP | > 300 s | 18.2 s | 15.9 s | 14.8 s | 36.2 s | 42.2 s |
+| chainstore / HUI-Trie | > 300 s | 25.6 s | 23.2 s | 17.8 s | 48.2 s | 45.1 s |
+| chainstore / HUP-Tree | > 300 s | 20.7 s | 17.8 s | 15.2 s | 17.2 s | > 300 s |
+| chainstore / TKU | > 300 s | 272.9 s | 280.1 s | 280.6 s | 60.8 s | 78.1 s |
+| kosarak / UP-Growth+ | > 300 s | 72.9 s | 59.2 s | 53.5 s | 48.6 s | 72.9 s |
+| retail / UP-Growth+ | 225.2 s | 6.0 s | 5.3 s | 3.7 s | 3.6 s | 3.7 s |
+
+Partitions are often faster than the global tree even when it fits (small trees are
+cache-friendly). Still slow and unrelated to memory (they also time out at 256 MB with
+partitions off): IHUP, HUI-Trie and HUP-Tree on retail and kosarak, UP-Growth on retail, TKU on
+kosarak (TWU-only bounds give too many candidates at these thresholds); TKU on chainstore below
+128 MB (its phase-2 verification runs in many small batches).
 
 ## 3. Buffer pool (`src/buffer_pool/pool.rs`)
 * Charges the shared ledger; if it cannot make room (everything pinned or the budget held by
