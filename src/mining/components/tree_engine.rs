@@ -148,8 +148,8 @@ pub struct ItemsetSpool {
 impl ItemsetSpool {
     pub fn new(store: Arc<dyn ChunkStore + Send + Sync>, guard: &Arc<MemoryGuard>) -> Self {
         let segment = super::tx_spool::spool_segment_bytes(guard);
-        let res = guard.reserve_force(2 * segment);
-        Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::new(), buf_count: 0, segment,
+        let res = guard.reserve_force(segment);
+        Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::with_capacity(segment), buf_count: 0, segment,
                _buf_res: res, count: 0, item_total: 0 }
     }
 
@@ -160,13 +160,16 @@ impl ItemsetSpool {
     /// Append a candidate with an over-estimate of its utility (used to skip candidates
     /// that can no longer qualify, e.g. TKU's SE strategy).
     pub fn push_est(&mut self, items: &[ItemId], est: Utility) -> io::Result<()> {
+        let rec = 12 + 4 * items.len();
+        if !self.buf.is_empty() && self.buf.len() + rec > self.segment { self.flush()?; }
+        self.buf.reserve(rec);
+        if self.buf.capacity() > self._buf_res.bytes() { self._buf_res.resize_force(self.buf.capacity()); }
         self.buf.extend_from_slice(&(items.len() as u32).to_le_bytes());
         self.buf.extend_from_slice(&est.to_le_bytes());
         for i in items { self.buf.extend_from_slice(&i.to_le_bytes()); }
         self.buf_count += 1;
         self.count += 1;
         self.item_total += items.len() as u64;
-        if self.buf.len() >= self.segment { self.flush()?; }
         Ok(())
     }
 
@@ -182,7 +185,7 @@ impl ItemsetSpool {
 
     /// Visit itemsets with index in [from, to).
     fn scan_range(&self, from: u64, to: u64, mut f: impl FnMut(&[ItemId], Utility)) -> io::Result<()> {
-        let _page_res = self.guard.reserve_force(2 * self.segment);
+        let mut page_res = self.guard.reserve_force(self.segment);
         let mut idx = 0u64;
         let mut page = Vec::new();
         let mut items = Vec::new();
@@ -190,6 +193,7 @@ impl ItemsetSpool {
             if idx + n as u64 <= from { idx += n as u64; continue; }
             if idx >= to { break; }
             self.store.read_page(id, &mut page)?;
+            if page.capacity() > page_res.bytes() { page_res.resize_force(page.capacity()); }
             let mut pos = 0;
             for _ in 0..n {
                 let len = u32::from_le_bytes(page[pos..pos + 4].try_into().unwrap()) as usize;
@@ -309,19 +313,24 @@ pub fn verify_with(
 }
 
 /// Admission control for the tree miners (see `MiningContext::admit`). What cannot be spilled:
-/// per-item maps (TWU, header table, root index, the transient rank/local maps of one
-/// conditional level, miu) and the item order, the DB spool and candidate spool buffers, two pinned node pages
-/// and the output queue; per phase-2 worker, the smallest candidate batch with its index and
-/// the spool read buffers. Node pages, conditional trees and candidates spill.
-fn admit_tree(ctx: &mut MiningContext, name: &str, n_items: usize, extra_fixed: &dyn Fn(usize) -> usize) -> io::Result<()> {
-    let n = n_items.max(1);
+/// the TWU map of all items; per promising item, the header table, root index, the transient
+/// rank/local maps of one conditional level, miu and the item order; the DB and candidate
+/// spool write buffers, two pinned node pages and the output queue; per phase-2 worker, the
+/// smallest candidate batch with its index and the spool read buffers. Node pages,
+/// conditional trees and candidates spill.
+fn admit_tree(ctx: &mut MiningContext, name: &str, twu: &HashMap<ItemId, Utility>, min: Utility,
+              extra_fixed: &dyn Fn(usize) -> usize) -> io::Result<()> {
+    // The TWU map covers every item; the other maps only the promising ones.
+    let n_all = twu.len().max(1);
+    let n = twu.values().filter(|&&t| t >= min).count().max(1);
     let multi = ctx.threads > 1;
     let estimate = |b: usize| -> (usize, usize) {
         let seg = (b / 32).clamp(1024, 1 << 20);
         let queue = if multi { (b / 64).clamp(64 * 96, 100_000 * 96) } else { 0 };
         let page = (b / 64).clamp(4 * 1024, 64 * 1024); // arena_page_bytes
-        let fixed = 5 * map_bytes::<ItemId, Utility>(n) + n * 8 + 4 * seg + 2 * (page + 16) + queue + extra_fixed(b);
-        (fixed, (b / 16).clamp(8 * 1024, 128 * 1024) + 4 * seg)
+        let fixed = map_bytes::<ItemId, Utility>(n_all) + 4 * map_bytes::<ItemId, Utility>(n) + n * 8
+            + 2 * seg + 2 * (page + 16) + queue + extra_fixed(b);
+        (fixed, (b / 16).clamp(8 * 1024, 128 * 1024) + 2 * seg)
     };
     ctx.admit(name, &estimate).map(|_| ())
 }
@@ -517,7 +526,7 @@ pub fn run_twu_tree_miner_with(name: &str, path: &std::path::Path, ctx: &mut Min
     let twu = item_twus(path)?;
     let mut valid: Vec<ItemId> = twu.iter().filter(|&(_, &t)| t >= min).map(|(&i, _)| i).collect();
     valid.sort_by(|a, b| twu[b].cmp(&twu[a]).then_with(|| a.cmp(b)));
-    admit_tree(ctx, name, twu.len(), &|_| 0)?;
+    admit_tree(ctx, name, &twu, min, &|_| 0)?;
 
     ctx.progress.set_stage(&format!("Phase 1: Building {} tree", name));
     let mut arena: NodeArena<TwuNode> = NodeArena::new(&ctx.pool, &ctx.guard);
@@ -810,7 +819,7 @@ pub fn run_hup_tree(path: &std::path::Path, ctx: &mut MiningContext) -> io::Resu
     // One-phase, single-threaded: also the per-node utility vectors being read (one value
     // page; a page holds a whole path, i.e. up to one value per promising item).
     let max_path = order.len().min(8192);
-    admit_tree(ctx, "HUP-Tree", twu.len(), &|b| ((b / 64).clamp(4 * 1024, 64 * 1024)).max(max_path * 8) + 16)?;
+    admit_tree(ctx, "HUP-Tree", &twu, min, &|b| ((b / 64).clamp(4 * 1024, 64 * 1024)).max(max_path * 8) + 16)?;
     ctx.progress.set_stage("HUP-Tree: building tree");
     let mut arena: NodeArena<HupNode> = NodeArena::new(&ctx.pool, &ctx.guard);
     let mut vals: NodeArena<Utility> = NodeArena::with_min_slots(&ctx.pool, &ctx.guard, max_path);
@@ -1105,7 +1114,7 @@ pub fn run_up_growth(path: &std::path::Path, ctx: &mut MiningContext, variant: U
     let min = ctx.min_utility;
     ctx.progress.set_stage("Phase 1: TWU Calculation (DGU)");
     let twu = item_twus(path)?;
-    admit_tree(ctx, if variant == UpVariant::Growth { "UP-Growth" } else { "UP-Growth+" }, twu.len(), &|_| 0)?;
+    admit_tree(ctx, if variant == UpVariant::Growth { "UP-Growth" } else { "UP-Growth+" }, &twu, min, &|_| 0)?;
     let db = spool_db(path, &twu, min, ctx)?;
     ctx.progress.set_stage("Phase 2: Global UP-Tree Construction (DGN)");
     let (mut arena, tree, miu) = build_up_tree(&db, &twu, min, ctx)?;
@@ -1141,7 +1150,6 @@ pub fn run_tku(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u6
 
     ctx.progress.set_stage("TKU: TWU and pre-evaluation (PE)");
     let twu = item_twus(path)?;
-    admit_tree(ctx, "TKU", twu.len(), &|_| 0)?;
     let db_all = spool_db(path, &twu, 0, ctx)?;
     let mut item_u: HashMap<ItemId, Utility> = HashMap::new();
     let mut pair_occ = 0usize;
@@ -1153,6 +1161,9 @@ pub fn run_tku(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u6
     let border0 = super::pair_util::kth_best_small_itemset_utility(
         &db_all, item_u.values().copied(), k, &ctx.guard, ctx.guard.native_remaining() / 2, pair_occ)?;
     drop(item_u);
+    // Admission once the border is known (items with TWU below it are not promising). The
+    // pre-evaluation above is itself bounded by half of the free budget.
+    admit_tree(ctx, "TKU", &twu, border0, &|_| 0)?;
 
     ctx.progress.set_stage(&format!("TKU: Phase 1 (border {})", border0));
     let (mut arena, tree, miu) = build_up_tree(&db_all, &twu, border0, ctx)?;

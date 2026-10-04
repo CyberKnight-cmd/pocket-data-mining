@@ -57,12 +57,12 @@ Below that floor the process would otherwise exceed its budget (or be killed by 
 | Two-Phase | per-item list headers, builder segments, output queue | one streaming join, arena page, list headers on the DFS path |
 | EFIM | renaming maps, su / projection-size arrays | utility bins, pinned and open segments, smallest first-level batch |
 | EFIM-Closed | per-item maps, DB builder segment, output queue | 2 x the largest projection (a spilled projection is loaded while its child is built), lu/su maps, one DB segment, smallest batch |
-| Trees (IHUP, HUI-Trie, HUP-Tree, UP-Growth, UP-Growth+, TKU) | per-item maps, DB and candidate spool buffers, two node pages, output queue | smallest phase-2 candidate batch, spool read buffers |
+| Trees (IHUP, HUI-Trie, HUP-Tree, UP-Growth, UP-Growth+, TKU) | TWU map of all items, per-promising-item maps, DB and candidate spool buffers, two node pages, output queue | smallest phase-2 candidate batch, spool read buffers |
 | Heuristics (HUIM-GA, HUIM-BPSO, MHUI-ACO) | per-item index and arrays, smallest cache / found-set, pass-2 buffers | one chunk per selected item (streaming intersection), one DB segment |
 
 Buffers that used to be fixed now scale with the budget, so the floor scales too: spool segments
 (1/32 of the budget, 1 KB-1 MB), node pages (1/64, 4-64 KB), DB segments (1/64, 4-256 KB),
-minimum phase-2 batch (1/16, 8-128 KB), EFIM's minimum first-level batch (4 segments).
+minimum phase-2 batch (1/16, 8-128 KB), EFIM's minimum first-level batch (2 segments).
 `tests/budget_integration.rs` checks that all 23 algorithms refuse cleanly at 8 KB, and run
 exactly at 96 KB with the ledger peak at most 64 KB per thread above the budget.
 

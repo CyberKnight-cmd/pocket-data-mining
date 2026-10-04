@@ -29,21 +29,27 @@ pub struct TxSpool {
 impl TxSpool {
     pub fn new(store: Arc<dyn ChunkStore + Send + Sync>, guard: &Arc<MemoryGuard>) -> Self {
         let segment = spool_segment_bytes(guard);
-        // A transaction may overrun the segment once before it is flushed.
-        let res = guard.reserve_force(2 * segment);
+        let res = guard.reserve_force(segment);
         Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::with_capacity(segment), segment, _buf_res: Some(res) }
     }
 
     /// Append one transaction: items with their utilities, and the transaction utility.
+    /// The buffer is flushed before it would outgrow the segment, so it grows beyond the
+    /// segment only for a single transaction larger than that (accounted).
     pub fn push(&mut self, items: &[(ItemId, Utility)], tu: Utility) -> io::Result<()> {
+        let rec = 12 + 12 * items.len();
+        if !self.buf.is_empty() && self.buf.len() + rec > self.segment {
+            self.flush()?;
+        }
+        self.buf.reserve(rec);
+        if let Some(r) = self._buf_res.as_mut() {
+            if self.buf.capacity() > r.bytes() { r.resize_force(self.buf.capacity()); }
+        }
         self.buf.extend_from_slice(&(items.len() as u32).to_le_bytes());
         self.buf.extend_from_slice(&tu.to_le_bytes());
         for &(item, u) in items {
             self.buf.extend_from_slice(&item.to_le_bytes());
             self.buf.extend_from_slice(&u.to_le_bytes());
-        }
-        if self.buf.len() >= self.segment {
-            self.flush()?;
         }
         Ok(())
     }
@@ -67,12 +73,13 @@ impl TxSpool {
 
     /// Replay all transactions in order. `f(items, utilities, tu)` returns false to stop.
     pub fn scan(&self, mut f: impl FnMut(&[ItemId], &[Utility], Utility) -> bool) -> io::Result<()> {
-        let _page_res = self.guard.reserve_force(2 * self.segment);
+        let mut page_res = self.guard.reserve_force(self.segment);
         let mut page = Vec::new();
         let mut items: Vec<ItemId> = Vec::new();
         let mut utils: Vec<Utility> = Vec::new();
         for &id in &self.pages {
             self.store.read_page(id, &mut page)?;
+            if page.capacity() > page_res.bytes() { page_res.resize_force(page.capacity()); }
             let mut pos = 0;
             while pos < page.len() {
                 let n = u32::from_le_bytes(page[pos..pos + 4].try_into().unwrap()) as usize;

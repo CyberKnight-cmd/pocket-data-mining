@@ -406,7 +406,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         let n = twu.twu.len().max(1);
         let ext_b = std::mem::size_of::<Ext>() + cfg.pu_partitions * 8;
         let multi = ctx.threads > 1;
-        // The binary DB copy for EUCS / pair scans: write buffer + one read buffer (2 segments each).
+        // The binary DB copy for EUCS / pair scans: write buffer + one read buffer (a segment each).
         let spool = cfg.use_eucs || cfg.cooccur_filter || (cfg.topk_seed && ctx.k.is_some());
         // Same size rules as ul_join::chunk_entries, arena pages, builder segments, output queue.
         let estimate = |b: usize| -> (usize, usize) {
@@ -415,7 +415,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
             let seg = (b / 32).clamp(4 * 1024, 1 << 20); // list builder segments
             let spool_seg = (b / 32).clamp(1024, 1 << 20); // tx_spool::spool_segment_bytes
             let fixed = n * (std::mem::size_of::<(ItemId, UtilityList, UlBody)>() + 96)
-                + 2 * seg + if spool { 4 * spool_seg } else { 0 } + queue;
+                + 2 * seg + if spool { 2 * spool_seg } else { 0 } + queue;
             let per_thread = 4 * chunk_b + (b / 64).clamp(4 * 1024, 256 * 1024) + 2 * n.min(4096) * ext_b;
             (fixed, per_thread)
         };

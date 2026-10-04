@@ -287,7 +287,7 @@ pub fn run_efim(cfg: EfimConfig, source: DataSource, ctx: &mut MiningContext) ->
     {
         let estimate = |b: usize| -> (usize, usize) {
             let seg = (b / 64).clamp(4 * 1024, SEGMENT); // same rule as segment_bytes
-            (m * (4 + 24 + 4 + 16), m * 16 + 4 * seg + 4 * seg)
+            (m * (4 + 24 + 4 + 16), m * 16 + 4 * seg + 2 * seg)
         };
         ctx.admit(cfg.name, &estimate)?;
     }
@@ -331,9 +331,9 @@ pub fn run_efim(cfg: EfimConfig, source: DataSource, ctx: &mut MiningContext) ->
     // Batches of top-level items: one scan of the root database builds all first-level
     // projections of a batch. Each concurrently running batch may use a slice of the budget.
     let threads = ctx.threads.max(1);
-    // Floor: four segments (a batch's projections, including their open segments, are bounded
-    // by the sum of their sizes; admission counts this floor per worker).
-    let per_batch = (ctx.guard.native_remaining() / (2 * threads)).max(4 * segment_bytes(&ctx.guard));
+    // Floor: two segments (a batch's open projection segments are bounded by the sum of the
+    // projections' sizes; admission counts this floor per worker).
+    let per_batch = (ctx.guard.native_remaining() / (2 * threads)).max(2 * segment_bytes(&ctx.guard));
     let target = primary.len().div_ceil(threads * 4).max(1);
     let mut batches: Vec<Vec<u32>> = Vec::new();
     let mut cur: Vec<u32> = Vec::new();
