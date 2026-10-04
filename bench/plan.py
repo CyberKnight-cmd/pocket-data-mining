@@ -248,6 +248,27 @@ def main():
             J(experiment="spmf-free", impl="spmf", algo=algo, dataset=ds, budget_mb=None, cap_s=600,
               priority=60000, spmf_name=sname, spmf_args=args(datasets[ds]["min_util"], K), code_version="spmf")
 
+    # Headline: a server-scale dataset on the Pi. dunnhumby LGSR, 47.1M baskets, 3.2 GB in SPMF
+    # format (bench/convert_lgsr.py), threshold 0.2% of total utility (calibration_large.json),
+    # at 1 and 2 GB on a 3.8 GB Pi. The 2 GB Air-HUIM runs are the references.
+    lgsr_path = os.path.join(DDIR, "lgsr.txt")
+    if os.path.exists(os.path.expanduser(lgsr_path)):
+        meta = os.path.expanduser(lgsr_path + ".json")
+        datasets["lgsr"] = {"path": lgsr_path, "min_util": 117945433, "min_util_avg": None, "pct_fallback": None,
+                            "threshold_source": "calibration_large.json (0.2%)",
+                            "sha256": json.load(open(meta))["sha256"] if os.path.exists(meta) else None, "stats": None}
+        big = {"cap_s": 14400, "disk_cap_mb": 20000}
+        for algo in ("fhm", "efim-closed"):
+            J(experiment="ref", impl="air", algo=algo, dataset="lgsr", budget_mb=2048, priority=90,
+              is_reference=True, **big)
+        for b in (2048, 1024):
+            for algo in ("fhm", "efim", "efim-closed", "up-growth-plus"):
+                J(experiment="pi-large", impl="air", algo=algo, dataset="lgsr", budget_mb=b, priority=91, **big)
+                if algo in SPMF:
+                    sname, args = SPMF[algo]
+                    J(experiment="pi-large", impl="spmf", algo=algo, dataset="lgsr", budget_mb=b, priority=92,
+                      spmf_name=sname, spmf_args=args(117945433, K), code_version="spmf", **big)
+
     plan = {
         "config": {
             "binaries": {"air": "~/air-huim/target/release/air-huim",

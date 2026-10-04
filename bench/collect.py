@@ -220,6 +220,8 @@ def run_job(job, cfg, data_dir, refs):
     p = subprocess.Popen(cmd, cwd=d, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env,
                          start_new_session=True)
     budget_kb = job["budget_mb"] * 1024 if job.get("budget_mb") else None
+    # Per-job override for runs expected to spill more (e.g. 47M baskets at 1 GB).
+    cap_b = job["disk_cap_mb"] << 20 if job.get("disk_cap_mb") else RUN_DIR_CAP
     watchdog = job.get("watchdog", False)
     hwm = 0
     peak_spill = 0
@@ -238,8 +240,8 @@ def run_job(job, cfg, data_dir, refs):
             peak_spill = max(peak_spill, spill_b)
             temp, mhz = soc()
             last_slow = now
-            if spill_b > RUN_DIR_CAP and not killed_reason:
-                killed_reason = f"disk-cap: run directory {spill_b >> 20} MB > {RUN_DIR_CAP >> 20} MB"
+            if spill_b > cap_b and not killed_reason:
+                killed_reason = f"disk-cap: run directory {spill_b >> 20} MB > {cap_b >> 20} MB"
                 os.killpg(p.pid, signal.SIGKILL)
         if s:
             last = s
