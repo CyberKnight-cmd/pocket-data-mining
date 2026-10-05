@@ -27,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # queue pauses when the disk has less than MIN_FREE left. One bad threshold once wrote 36 GB.
 RUN_DIR_CAP = int(os.environ.get("BENCH_RUN_DIR_CAP", 2 << 30))
 MIN_FREE = int(os.environ.get("BENCH_MIN_FREE", 5 << 30))
+SAFETY_FREE = int(os.environ.get("BENCH_SAFETY_FREE", 192 << 20))  # host MemAvailable floor during a run
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PAGE = os.sysconf("SC_PAGE_SIZE")
 
@@ -250,6 +251,14 @@ def run_job(job, cfg, data_dir, refs):
                               + [spill_b, temp, mhz]) + "\n")
             if watchdog and budget_kb and s.get("VmRSS", 0) > budget_kb:
                 killed_reason = f"watchdog: RSS {s['VmRSS'] // 1024} MB > budget {job['budget_mb']} MB"
+                os.killpg(p.pid, signal.SIGKILL)
+            # Machine safety, always on: a run far over its budget (or starving the host) is killed
+            # and recorded as a budget violation instead of driving the machine into swap death.
+            elif budget_kb and not killed_reason and (
+                    s.get("VmRSS", 0) > max(2 * budget_kb, budget_kb + (256 << 10))
+                    or mem_available() < SAFETY_FREE):
+                killed_reason = (f"safety: RSS {s.get('VmRSS', 0) // 1024} MB, budget {job['budget_mb']} MB, "
+                                 f"{mem_available() >> 20} MB available")
                 os.killpg(p.pid, signal.SIGKILL)
         pid, st, ru = os.wait4(p.pid, os.WNOHANG)
         if pid:
