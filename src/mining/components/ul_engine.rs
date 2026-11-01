@@ -64,7 +64,9 @@ pub struct UlMinerConfig {
     pub order_by_item: bool,
 }
 
-/// One candidate extension: its utility list, body, and (PU-prune) per-partition bound sums.
+/// One candidate extension P·y: its utility list, body, and (PU-prune) per-partition bound sums.
+/// `ul.itemset` holds only `y`; the prefix P is passed down the search once per level, so a
+/// deep search (one long transaction) does not keep a copy of P in every pending extension.
 pub struct Ext {
     pub ul: UtilityList,
     pub body: UlBody,
@@ -214,10 +216,11 @@ impl Search<'_> {
         Ok(body.last_tid(alloc)?.is_none_or(|t| t < self.min_tid))
     }
 
-    fn is_hui(&self, ul: &UtilityList, thresh: Utility) -> bool {
+    /// `len` = number of items in the itemset (the list's `itemset` holds only the last one).
+    fn is_hui(&self, ul: &UtilityList, thresh: Utility, len: usize) -> bool {
         if ul.len == 0 { return false; }
         if self.cfg.average {
-            ul.sum_iutils >= thresh.saturating_mul(ul.itemset.len() as Utility)
+            ul.sum_iutils >= thresh.saturating_mul(len as Utility)
         } else {
             ul.sum_iutils >= thresh
         }
@@ -300,18 +303,22 @@ impl Search<'_> {
     fn search<'p>(
         &'p self,
         alloc: BodyAlloc<'p>,
+        prefix_items: &[ItemId],
         prefix_body: Option<&'p UlBody>,
         parent: Option<&'p Parent<'p>>,
         mut extensions: Vec<Ext>,
         writer: &mut WriterProxy,
     ) -> io::Result<()> {
         let ctx = self.ctx;
-        // Headers (itemset + sums + partition sums) are small but scale with the search width.
+        // Headers (sums + partition sums) are small but scale with the search width; the prefix
+        // copy scales with the depth.
         let _hdr = ctx.guard.reserve_force(vec_bytes::<Ext>(extensions.capacity())
-            + extensions.len() * self.cfg.pu_partitions * 8);
+            + extensions.len() * self.cfg.pu_partitions * 8
+            + 2 * vec_bytes::<ItemId>(prefix_items.len() + 1));
 
         for i in 0..extensions.len() {
-            let mut thresh = self.threshold(extensions[i].ul.itemset[0]);
+            let item_x = extensions[i].ul.itemset[0];
+            let mut thresh = self.threshold(prefix_items.first().copied().unwrap_or(item_x));
             if self.prune(&extensions[i].ul, thresh) {
                 extensions[i].body = UlBody::InMemory(Vec::new(), None);
                 continue;
@@ -328,32 +335,31 @@ impl Search<'_> {
             {
                 let exts: &[Ext] = &extensions;
                 let px_ext = &exts[i];
-                let depth = px_ext.ul.itemset.len();
+                let depth = prefix_items.len() + 1;
                 ctx.progress.current_depth.store(depth, Ordering::Relaxed);
                 ctx.progress.fast_path_reads.fetch_add(1, Ordering::Relaxed);
                 if self.untouched(alloc, &px_ext.body)? {
                     continue;
                 }
 
-                let itemset_px: SmallVec<[ItemId; 8]> = px_ext.ul.itemset.clone();
+                let mut itemset_px: SmallVec<[ItemId; 8]> = SmallVec::from_slice(prefix_items);
+                itemset_px.push(item_x);
                 ctx.progress.set_active_prefix(&itemset_px);
-                if self.is_hui(&px_ext.ul, thresh) && self.length_ok(depth) {
+                if self.is_hui(&px_ext.ul, thresh, depth) && self.length_ok(depth) {
                     thresh = self.emit(&itemset_px, px_ext.ul.sum_iutils, thresh, writer)?;
                 }
 
                 if self.may_extend(depth) {
-                    let item_x = *itemset_px.last().unwrap();
                     let prefix_src = prefix_body.map(ListSrc::Body);
                     let px_src = ListSrc::Body(&px_ext.body);
                     let mut next: Vec<Ext> = Vec::new();
                     for j in (i + 1)..exts.len() {
                         let py_ext = &exts[j];
-                        let item_y = *py_ext.ul.itemset.last().unwrap();
+                        let item_y = py_ext.ul.itemset[0];
                         if self.skip_pair(item_x, item_y, &px_ext.pu, &py_ext.pu, thresh) {
                             continue;
                         }
-                        let mut new_itemset = itemset_px.clone();
-                        new_itemset.push(item_y);
+                        let new_itemset: SmallVec<[ItemId; 8]> = SmallVec::from_slice(&[item_y]);
                         // A dropped sibling is read through a lazy join of its parents.
                         let py_src = src_for(parent, &py_ext.body, py_ext.recipe);
                         let uses = next.len() as u32;
@@ -364,7 +370,7 @@ impl Search<'_> {
                     }
                     if !next.is_empty() {
                         let child = Parent { prefix: prefix_body, px: &px_ext.body, sibs: Sibs::Exts(exts), up: parent };
-                        self.search(alloc, Some(&px_ext.body), Some(&child), next, writer)?;
+                        self.search(alloc, &itemset_px, Some(&px_ext.body), Some(&child), next, writer)?;
                     }
                 }
             }
@@ -490,6 +496,18 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
     let mut lists = builder.finish()?;
     crate::mining::core::memory_guard::release_free_memory();
 
+    // Top-K, TKO's RUC strategy: the K-th best exact 1-itemset utility is a lower bound on the
+    // K-th best utility overall, so the search can start there instead of at 0. Starting at 0
+    // makes the first subtrees run as if mining with no threshold at all.
+    if let Some(state) = &top_k {
+        if lists.len() >= state.k {
+            let mut u: Vec<Utility> = lists.iter().map(|(_, ul, _)| ul.sum_iutils).collect();
+            let kth = state.k - 1;
+            let (_, v, _) = u.select_nth_unstable_by(kth, |a, b| b.cmp(a));
+            state.threshold.fetch_max(*v, Ordering::Relaxed);
+        }
+    }
+
     // EUCS: built after the lists so it can use the memory the builder released, and in
     // as many partitions (extra DB scans) as needed to stay within budget. Pairs below
     // the threshold are dropped per partition, so the final structure is compact.
@@ -505,12 +523,45 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
     let eucs = if cfg.use_eucs || cfg.cooccur_filter {
         let cap = ctx.guard.native_remaining() * 6 / 10;
         // The co-occurrence filter keeps every pair that occurs at all (threshold 1).
-        let keep = if cfg.use_eucs { initial_threshold } else { 1 };
-        let e = Eucs::build_partitioned(
-            |f| spool.as_ref().unwrap().scan(|items, _, tu| f(items, tu)),
-            &ctx.guard, cap, keep, pair_occurrences,
-            |p, n| ctx.progress.set_stage(&format!("Pass 3: pair structure partition {}/{}", p + 1, n)),
-        )?;
+        // (Top-K: the threshold only rises, so the seeded value is safe to prune pairs with.)
+        let keep = if cfg.use_eucs { top_k.as_ref().map_or(initial_threshold, |s| s.get()) } else { 1 };
+        // A pair's TWU is at most either item's TWU, so when the threshold was raised above the
+        // TWU filter's, items below it cannot be in any kept pair: leave them out of the counting.
+        let sp = spool.as_ref().unwrap();
+        let floor = keep.max(initial_threshold);
+        let filter = floor > initial_threshold;
+        let item_ok = |i: &ItemId| twu.twu.get(i).is_some_and(|&t| t >= floor);
+        let mut kept: Vec<ItemId> = Vec::new();
+        let mut scan = |f: &mut dyn FnMut(&[ItemId], Utility) -> bool| sp.scan(|items, _, tu| {
+            if !filter { return f(items, tu); }
+            kept.clear();
+            kept.extend(items.iter().copied().filter(|i| item_ok(i)));
+            f(&kept, tu)
+        });
+        // Triangular matrix when it fits (one scan, no hashing); else pair partitions.
+        let mut items: Vec<ItemId> = twu.twu.iter().filter(|&(_, &t)| t >= floor).map(|(&i, _)| i).collect();
+        items.sort_unstable();
+        ctx.progress.set_stage("Pass 3: pair structure (matrix)");
+        let dense = Eucs::build_dense(&mut scan, &items, &ctx.guard, cap)?;
+        let e = match dense {
+            Some(e) => e,
+            None => {
+                // Distinct pairs are bounded by the occurrence count and by n(n-1)/2 for n items;
+                // the second is far smaller when a few long transactions dominate.
+                let mut est_pairs = pair_occurrences;
+                if filter {
+                    est_pairs = 0;
+                    scan(&mut |items, _| { est_pairs += items.len() * items.len().saturating_sub(1) / 2; true })?;
+                }
+                est_pairs = est_pairs.min(items.len() * items.len().saturating_sub(1) / 2);
+                drop(items);
+                Eucs::build_partitioned(
+                    &mut scan,
+                    &ctx.guard, cap, keep, est_pairs,
+                    |p, n| ctx.progress.set_stage(&format!("Pass 3: pair structure partition {}/{}", p + 1, n)),
+                )?
+            }
+        };
         if !e.is_enabled() {
             ctx.progress.set_stage("EUCS does not fit the budget (disabled, mining stays exact)");
         }
@@ -557,7 +608,13 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
     let _pu_res = ctx.guard.reserve_force(lists_pu.len() * cfg.pu_partitions * 8);
     let pu_of = |k: usize| -> Option<Box<[Utility]>> { lists_pu.get(k).cloned().flatten() };
     let lists_ref = &lists;
-    let task_indices: Vec<usize> = (0..lists.len()).collect();
+    let mut task_indices: Vec<usize> = (0..lists.len()).collect();
+    // Top-K, TKO's EPB strategy: run the most promising subtrees first so the threshold reaches
+    // its final value early. The processing order (and so every list) is unchanged; only the
+    // order in which the independent first-level subtrees run is.
+    if top_k.is_some() {
+        task_indices.sort_by_key(|&i| Reverse(search.bound(&lists[i].1)));
+    }
 
     ctx.execute_tasks(task_indices, |i, writer| {
         let (item_x, ul_x, body_x) = &lists_ref[i];
@@ -568,7 +625,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
         if search.prune(ul_x, thresh) {
             return;
         }
-        if search.is_hui(ul_x, thresh) && search.length_ok(1) {
+        if search.is_hui(ul_x, thresh, 1) && search.length_ok(1) {
             thresh = search.emit(&[item_x], ul_x.sum_iutils, thresh, writer).unwrap();
         }
         if !search.may_extend(1) {
@@ -588,7 +645,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
             if search.skip_pair(item_x, *item_y, &pu_x, &pu_of(j), thresh) {
                 continue;
             }
-            let itemset: SmallVec<[ItemId; 8]> = [item_x, *item_y].iter().copied().collect();
+            let itemset: SmallVec<[ItemId; 8]> = SmallVec::from_slice(&[*item_y]);
             let uses = extensions.len() as u32;
             if let Some(e) = search.join(alloc, itemset, None, &px_src, &ListSrc::Body(body_y), ul_x, ul_y,
                                          thresh, uses, j as u32).unwrap() {
@@ -614,7 +671,7 @@ pub fn run_ul_miner(cfg: UlMinerConfig, source: DataSource, ctx: &mut MiningCont
 
         if !extensions.is_empty() {
             let top = Parent { prefix: None, px: body_x, sibs: Sibs::Lists(lists_ref), up: None };
-            search.search(alloc, Some(body_x), Some(&top), extensions, writer).unwrap();
+            search.search(alloc, &[item_x], Some(body_x), Some(&top), extensions, writer).unwrap();
         }
     });
 
