@@ -6,6 +6,9 @@
 \usepackage{multirow}
 \usepackage{xcolor}
 \usepackage{url}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,calc}
 \usepackage[hidelinks]{hyperref}
 
 % Marks numbers that come from runs still in progress; must be empty before submission.
@@ -62,7 +65,17 @@ where much retail and sensor data is produced, such as a single-board computer w
 gigabytes of RAM, without the analyst having to guess whether a run will fit? On a 4\,GB
 Raspberry Pi, SPMF fails on 47.1\,million baskets at every budget we tried, and on the classic
 benchmark datasets it runs out of memory at a 64\,MB heap in 116 of 196 runs
-(Section~\ref{sec:eval}).
+(Section~\ref{sec:eval}). Fig.~\ref{fig:trace} shows the difference on one run.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig/trace_lgsr.pdf}
+\caption{Resident memory over time, FHM on 47.1\,M baskets (LGSR) with a 1\,GB budget on a 4\,GB
+Raspberry Pi. SPMF grows until the JVM runs out of memory; Air-HUIM stays under the budget and
+returns the exact result. The oscillation before minute 12 is the external sort that builds the
+1-itemset lists, spilling and refilling its buffer.}
+\label{fig:trace}
+\end{figure}
 
 We present \textbf{Air-HUIM}, a Rust library in which the memory budget is a first-class input.
 The user gives one number; every algorithm keeps the process within it, uses the memory it is
@@ -124,6 +137,40 @@ A search of OpenAlex, arXiv and Crossref found no HUIM evaluation on a single-bo
 
 % ---------------------------------------------------------------------------------------------
 \section{Design}\label{sec:design}
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{\begin{tikzpicture}[font=\footnotesize, node distance=4mm and 3mm,
+  box/.style={draw=black!55, rounded corners=1.5pt, align=center, inner sep=3pt, minimum height=6mm},
+  eng/.style={box, fill=blue!7, minimum width=12mm, text width=12mm, font=\scriptsize},
+  arr/.style={-{Stealth[length=1.6mm]}, black!65}]
+\node[box, text width=0.9\columnwidth] (alg) {23 algorithms (FHM, EFIM, UP-Growth+, TKO, \dots)};
+\node[eng, below=4mm of alg.south west, anchor=north west] (ul) {Utility lists};
+\node[eng, right=1.2mm of ul] (pj) {Projection};
+\node[eng, right=1.2mm of pj] (tr) {Trees};
+\node[eng, right=1.2mm of tr] (tp) {Two-phase};
+\node[eng, right=1.2mm of tp] (he) {Heuristics};
+\node[box, fill=orange!12, below=6mm of pj.south east, anchor=north, text width=0.5\columnwidth] (led)
+  {\textbf{Memory ledger}\\[-1pt] limit $=B-$margin};
+\node[box, left=3mm of led, text width=13mm, fill=black!4] (adm) {Admission control};
+\node[box, right=3mm of led, text width=13mm, fill=black!4] (rss) {RSS feedback};
+\node[box, below=5mm of led, text width=0.5\columnwidth, fill=blue!7] (pool) {Buffer pool (cached spilled pages)};
+\node[box, below=4mm of pool, text width=0.5\columnwidth, fill=black!4] (disk) {Page store on disk};
+\foreach \e in {ul,pj,tr,tp,he} \draw[arr] (alg.south -| \e) -- (\e);
+\foreach \e in {ul,pj,tr,tp,he} \draw[arr] (\e.south) -- (led.north -| \e) ;
+\draw[arr] (adm) -- node[above, font=\scriptsize]{} (led);
+\draw[arr] (rss) -- (led);
+\draw[arr, <->] (led) -- node[right, font=\scriptsize]{shared budget} (pool);
+\draw[arr, <->] (pool) -- node[right, font=\scriptsize]{spill / reload} (disk);
+\end{tikzpicture}}
+\caption{Air-HUIM's memory design. Five engines implement the 23 algorithms; every structure that
+grows with the data is reserved from one ledger, which the buffer pool shares. Admission control
+refuses budgets below a computed minimum, and RSS feedback lowers the ledger limit when real memory
+use exceeds what the ledger sees.}
+\label{fig:design}
+\end{figure}
+
+Fig.~\ref{fig:design} shows the design.
 
 \textbf{The budget.} The user passes one number $B$ (e.g.\ \texttt{-b 64} for 64\,MB). The goal
 is that the process RSS stays within $B$, that the run uses $B$ (data stays in RAM while it fits),
@@ -293,7 +340,8 @@ top-$k$ outputs on every dataset. The three metaheuristics are approximate by de
 
 Of 1,503 Air-HUIM runs, 1,489 peaked at or below the budget. Thirteen exceeded it by 0.1--3.2\,MB,
 all at 24--64\,MB; the fourteenth, EFIM-Closed on LGSR at 2\,GB, peaked at 2,075\,MB (+1.3\%).
-Table~\ref{tab:hard} shows both tools under two hard limits: a kernel-enforced cgroup memory limit,
+Fig.~\ref{fig:peak} compares peak memory with the budget for every comparison run: SPMF's JVM
+exceeds a 64\,MB heap budget in every run, by up to $2.6\times$. Table~\ref{tab:hard} shows both tools under two hard limits: a kernel-enforced cgroup memory limit,
 and a watchdog that kills any process whose RSS exceeds the budget.
 
 \begin{table}[t]
@@ -311,57 +359,67 @@ Watchdog (RSS $>$ budget) & 64--256\,MB & 0 / 32 & 32 / 32 \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig/peak_ratio.pdf}
+\caption{Peak RSS divided by the budget, every Air-HUIM and SPMF run of the comparison (Pi, log
+scale). Crosses are runs that ran out of memory. SPMF's heap limit does not bound the process:
+the JVM's own memory comes on top.}
+\label{fig:peak}
+\end{figure}
+
 \subsection{Air-HUIM versus SPMF at the same budget}
 
 For every algorithm both libraries implement, we ran both on each dataset at 64\,MB, 256\,MB and
-1\,GB: 196 pairs per budget. Table~\ref{tab:pairs} counts the outcomes.
+1\,GB: 196 pairs per budget. Fig.~\ref{fig:outcomes} counts the outcomes.
 
-\begin{table}[t]
+\begin{figure}[t]
 \centering
-\caption{Outcomes of 196 Air-HUIM/SPMF pairs per budget on the Pi (same algorithm, dataset and budget; 10\,min cap).}
-\label{tab:pairs}
-\footnotesize
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-Budget & Both & Only Air & Only SPMF & Neither & SPMF OOM \\
-\midrule
-64\,MB & 68 & 68 & 0 & 60 & 116 \\
-256\,MB & 85 & 60 & 1 & 50 & 79 \\
-1\,GB & 102 & 63 & 0 & 31 & 34 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\columnwidth]{fig/outcomes.pdf}
+\caption{Outcome of the 196 Air-HUIM/SPMF pairs at each budget on the Pi (same algorithm, dataset
+and budget; 10\,min cap). Only SPMF finished in one pair, at 256\,MB.}
+\label{fig:outcomes}
+\end{figure}
+
 
 At 64\,MB, only Air-HUIM finished in 68 pairs and only SPMF in none. Where neither finished,
 Air-HUIM hit the time cap without running out of memory; SPMF ran out of memory in 56 of those 60
-pairs at 64\,MB.
+pairs at 64\,MB. In total SPMF ran out of memory in 116, 79 and 34 pairs at 64\,MB, 256\,MB
+and 1\,GB.
+
+\subsection{Graceful degradation}
+
+Fig.~\ref{fig:curve} shows Air-HUIM's run time as the budget shrinks from 2\,GB to 32\,MB. Above
+the size of the working set, time is flat. Below it, time rises smoothly as more state is spilled
+or recomputed; there is no cliff where a run fails, and the output is identical at every budget.
+Two-Phase does not finish on accidents, kosarak and retail at any budget: its candidate set is too
+large at these thresholds, independent of memory.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig/budget_curve.pdf}
+\caption{Air-HUIM wall time against budget on the Pi (4 threads, log--log). Lines join finished
+runs; triangles mark budgets where a run reached its time cap (10 or 30\,min). Output is identical
+at every budget.}
+\label{fig:curve}
+\end{figure*}
 
 \subsection{47 million baskets on a Raspberry Pi}
 
-Table~\ref{tab:lgsr} shows LGSR on the Pi at 1 and 2\,GB, with 4 threads for Air-HUIM. SPMF ran out
+Fig.~\ref{fig:lgsr} shows LGSR on the Pi at 1 and 2\,GB, with 4 threads for Air-HUIM. SPMF ran out
 of memory in all 8 runs, after 1--13 minutes. Air-HUIM finished 7 of 8 with the exact 52 HUIs;
-EFIM-Closed at 1\,GB reached the 4-hour cap without exceeding its budget.
+EFIM-Closed at 1\,GB reached the 4-hour cap without exceeding its budget. Air-HUIM's peaks were
+894--1,982\,MB for FHM, EFIM and EFIM-Closed, all within budget except EFIM-Closed at 2\,GB
+(2,075\,MB).
 
-\begin{table}[t]
+\begin{figure}[t]
 \centering
-\caption{LGSR (47.1\,M baskets, min\_util 0.2\%) on the 4\,GB Raspberry Pi.}
-\label{tab:lgsr}
-\footnotesize
-\begin{tabular}{@{}llccc@{}}
-\toprule
-Algorithm & Budget & SPMF & Air-HUIM time & Air peak RSS \\
-\midrule
-FHM & 2\,GB & OOM, 12\,min & 70\,min & 1,875\,MB \\
-EFIM & 2\,GB & OOM, 3\,min & 71\,min & 1,982\,MB \\
-EFIM-Closed & 2\,GB & OOM, 3\,min & 3.0\,h & 2,075\,MB \\
-UP-Growth+ & 2\,GB & OOM, 13\,min & 66\,min & 102\,MB \\
-FHM & 1\,GB & OOM, 7\,min & 36\,min & 894\,MB \\
-EFIM & 1\,GB & OOM, 1\,min & 144\,min & 989\,MB \\
-EFIM-Closed & 1\,GB & OOM, 1\,min & $>$4\,h (cap) & 1,004\,MB \\
-UP-Growth+ & 1\,GB & OOM, 7\,min & 71\,min & 101\,MB \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\columnwidth]{fig/lgsr.pdf}
+\caption{LGSR (47.1\,M baskets, min\_util 0.2\%) on the 4\,GB Raspberry Pi: time until SPMF ran
+out of memory, and time until Air-HUIM finished.}
+\label{fig:lgsr}
+\end{figure}
+
 
 UP-Growth+ needs about 100\,MB at either budget: partition projection keeps only one item's
 tree in memory at a time.
@@ -374,33 +432,20 @@ median. \pending{1-thread table, 102 pairs $\times$ 5 repeats; run finishing 1 N
 
 \subsection{Thread scaling}
 
-Table~\ref{tab:threads} shows Air-HUIM on the Pi with 1, 2 and 4 threads at 1\,GB. Speed-ups from
+Fig.~\ref{fig:threads} shows Air-HUIM on the Pi with 1, 2 and 4 threads at 1\,GB. Speed-ups from
 1 to 4 threads range from 1.1$\times$ to 3.7$\times$ (median 1.8$\times$). Short runs (EFIM on
 chainstore and kosarak, under 12\,s) are dominated by reading the input, which is sequential. FHM
 and HUI-Miner on accidents are slower at 4 threads than at 2. \pending{laptop 1--16 threads on
 LGSR, chainstore$\times$40 and H\&M; queued after the 1-thread table}
 
-\begin{table}[t]
+\begin{figure}[t]
 \centering
-\caption{Air-HUIM wall time (s) by thread count on the Pi, 1\,GB budget.}
-\label{tab:threads}
-\footnotesize
-\begin{tabular}{@{}llrrrr@{}}
-\toprule
-Dataset & Algorithm & 1 & 2 & 4 & 1$\to$4 \\
-\midrule
-\multirow{3}{*}{accidents} & EFIM & 98 & 63 & 41 & 2.4$\times$ \\
- & FHM & 342 & 174 & 224 & 1.5$\times$ \\
- & HUI-Miner & 347 & 167 & 192 & 1.8$\times$ \\
-\multirow{3}{*}{chainstore} & EFIM & 8 & 8 & 7 & 1.1$\times$ \\
- & FHM & 21 & 17 & 16 & 1.3$\times$ \\
- & HUI-Miner & 325 & 171 & 89 & 3.7$\times$ \\
-\multirow{3}{*}{kosarak} & EFIM & 11 & 9 & 8 & 1.4$\times$ \\
- & FHM & 99 & 57 & 36 & 2.8$\times$ \\
- & HUI-Miner & 199 & 104 & 58 & 3.4$\times$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\columnwidth]{fig/threads_pi.pdf}
+\caption{Speed-up over one thread on the 4-core Pi (1\,GB budget). HUI-Miner scales best; EFIM's
+short runs are dominated by sequential input reading.}
+\label{fig:threads}
+\end{figure}
+
 
 % ---------------------------------------------------------------------------------------------
 \section{Correctness Problems Found in SPMF}\label{sec:spmf}
