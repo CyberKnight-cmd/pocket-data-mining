@@ -339,6 +339,15 @@ impl OwnedPage {
         Ok(Self { id, pool: Arc::clone(pool) })
     }
 
+    /// Store `data` as a new page written straight to the ChunkStore, not cached: for data
+    /// read back once, much later (sort runs), caching it would only crowd out pages in use.
+    pub fn create_on_disk(pool: &Arc<BufferPool>, data: Vec<u8>) -> io::Result<Self> {
+        let id = pool.store.next_page_id();
+        pool.store.write_page(id, &data, PageFlags::empty())?;
+        pool.metrics.record_bytes_written(data.len() as u64);
+        Ok(Self { id, pool: Arc::clone(pool) })
+    }
+
     pub fn pin(&self) -> io::Result<PinGuard> { self.pool.pin(self.id) }
 }
 

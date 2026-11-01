@@ -102,20 +102,57 @@ impl<'a> ItemListBuilder<'a> {
                 seg.extend_from_slice(&(part.len() as u32).to_le_bytes());
                 seg.extend_from_slice(&serialize_ul_body(part));
                 if seg.len() >= seg_bytes {
-                    run.segments.push(OwnedPage::create(self.alloc.pool, std::mem::take(&mut seg))?);
+                    run.segments.push(OwnedPage::create_on_disk(self.alloc.pool, std::mem::take(&mut seg))?);
                     seg = Vec::with_capacity(seg_bytes);
                 }
             }
             drop(entries);
         }
         if !seg.is_empty() {
-            run.segments.push(OwnedPage::create(self.alloc.pool, seg)?);
+            run.segments.push(OwnedPage::create_on_disk(self.alloc.pool, seg)?);
         }
         self.runs.push(run);
         let b = self.res.bytes();
         self.res.shrink(b);
         self.buffered = 0;
         Ok(())
+    }
+
+    /// Merge several runs into one (same record format, items ascending), on disk.
+    fn merge_runs(&self, group: Vec<Run>, items: &[ItemId]) -> io::Result<Run> {
+        let seg_bytes = segment_bytes(self.alloc);
+        let piece = (seg_bytes / 20).max(1);
+        let _seg_res = self.alloc.guard.reserve_force(seg_bytes * 2);
+        let mut cursors: Vec<RunCursor> = group.into_iter().map(RunCursor::new).collect::<io::Result<_>>()?;
+        let mut run = Run { segments: Vec::new() };
+        let mut seg: Vec<u8> = Vec::with_capacity(seg_bytes);
+        let mut part: Vec<ULEntry> = Vec::with_capacity(piece);
+        let pool = self.alloc.pool;
+        let flush_part = |item: ItemId, part: &mut Vec<ULEntry>, seg: &mut Vec<u8>, run: &mut Run| -> io::Result<()> {
+            if part.is_empty() { return Ok(()); }
+            seg.extend_from_slice(&item.to_le_bytes());
+            seg.extend_from_slice(&(part.len() as u32).to_le_bytes());
+            seg.extend_from_slice(&serialize_ul_body(part));
+            part.clear();
+            if seg.len() >= seg_bytes {
+                run.segments.push(OwnedPage::create_on_disk(pool, std::mem::replace(seg, Vec::with_capacity(seg_bytes)))?);
+            }
+            Ok(())
+        };
+        for &item in items {
+            for c in cursors.iter_mut() {
+                c.take_item(item, &mut |e| {
+                    part.push(e);
+                    if part.len() >= piece { flush_part(item, &mut part, &mut seg, &mut run)?; }
+                    Ok(())
+                })?;
+            }
+            flush_part(item, &mut part, &mut seg, &mut run)?;
+        }
+        if !seg.is_empty() {
+            run.segments.push(OwnedPage::create_on_disk(pool, seg)?);
+        }
+        Ok(run)
     }
 
     /// Merge everything into final per-item lists, sorted by item id.
@@ -135,6 +172,19 @@ impl<'a> ItemListBuilder<'a> {
             ram_max_len = c;
         }
 
+        // The final merge pins one segment per run. Merge runs in groups first if that would
+        // take more than a quarter of the free budget (external-sort fan-in).
+        let seg_bytes = segment_bytes(self.alloc);
+        let fan_in = (self.alloc.guard.native_remaining() / 4 / seg_bytes).max(2);
+        while self.runs.len() > fan_in {
+            let runs = std::mem::take(&mut self.runs);
+            let mut it = runs.into_iter();
+            loop {
+                let group: Vec<Run> = it.by_ref().take(fan_in).collect();
+                if group.is_empty() { break; }
+                self.runs.push(if group.len() == 1 { group.into_iter().next().unwrap() } else { self.merge_runs(group, &items)? });
+            }
+        }
         let mut cursors: Vec<RunCursor> = std::mem::take(&mut self.runs)
             .into_iter().map(RunCursor::new).collect::<io::Result<_>>()?;
 
@@ -177,11 +227,14 @@ impl<'a> ItemListBuilder<'a> {
     }
 }
 
-/// Sequential reader over one run's segments. Reads go through the buffer pool (the
-/// segment stays a cached, evictable page) instead of a private copy per run, so many
-/// runs do not add up to many private buffers.
+/// Sequential reader over one run's segments. Reads go through the buffer pool. The current
+/// segment stays pinned until the cursor moves past it: re-pinning it per item let the pool
+/// evict it between items, and a merge then re-read each segment once per item (hundreds of
+/// GB read for a 3 GB merge). Pinned memory is one segment per run.
 struct RunCursor {
     segments: std::vec::IntoIter<OwnedPage>,
+    /// Declared before `cur`: the pin must be released before its page is discarded.
+    pin: Option<crate::buffer_pool::frame::PinGuard>,
     cur: Option<OwnedPage>,
     pos: usize,
     len: usize,
@@ -189,19 +242,18 @@ struct RunCursor {
 
 impl RunCursor {
     fn new(run: Run) -> io::Result<Self> {
-        let mut c = Self { segments: run.segments.into_iter(), cur: None, pos: 0, len: 0 };
+        let mut c = Self { segments: run.segments.into_iter(), pin: None, cur: None, pos: 0, len: 0 };
         c.advance_segment()?;
         Ok(c)
     }
 
     fn advance_segment(&mut self) -> io::Result<()> {
-        // Dropping the consumed segment discards it from the pool and disk.
+        // Unpin, then drop the consumed segment (discarding it from the pool and disk).
+        self.pin = None;
         self.cur = self.segments.next();
         self.pos = 0;
-        self.len = match &self.cur {
-            Some(p) => p.pin()?.len(),
-            None => 0,
-        };
+        self.pin = match &self.cur { Some(p) => Some(p.pin()?), None => None };
+        self.len = self.pin.as_ref().map_or(0, |p| p.len());
         Ok(())
     }
 
@@ -209,8 +261,7 @@ impl RunCursor {
     /// segments) to `f`, one entry at a time.
     fn take_item(&mut self, item: ItemId, f: &mut dyn FnMut(ULEntry) -> io::Result<()>) -> io::Result<()> {
         loop {
-            let Some(page) = &self.cur else { return Ok(()) };
-            let pin = page.pin()?;
+            let Some(pin) = &self.pin else { return Ok(()) };
             if self.pos + RECORD_HEADER > pin.len() { return Ok(()); }
             let rec_item = u32::from_le_bytes(pin[self.pos..self.pos + 4].try_into().unwrap());
             if rec_item != item { return Ok(()); }
@@ -225,7 +276,6 @@ impl RunCursor {
                 })?;
             }
             self.pos = start + count * 20;
-            drop(pin);
             if self.pos >= self.len {
                 self.advance_segment()?;
             }
