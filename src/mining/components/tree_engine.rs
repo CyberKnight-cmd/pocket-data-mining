@@ -143,6 +143,8 @@ pub struct ItemsetSpool {
     _buf_res: Reservation,
     pub count: u64,
     pub item_total: u64,
+    /// Encoded bytes spooled so far (disk + buffer).
+    pub bytes: u64,
 }
 
 impl ItemsetSpool {
@@ -150,7 +152,7 @@ impl ItemsetSpool {
         let segment = super::tx_spool::spool_segment_bytes(guard);
         let res = guard.reserve_force(segment);
         Self { store, guard: Arc::clone(guard), pages: Vec::new(), buf: Vec::with_capacity(segment), buf_count: 0, segment,
-               _buf_res: res, count: 0, item_total: 0 }
+               _buf_res: res, count: 0, item_total: 0, bytes: 0 }
     }
 
     pub fn push(&mut self, items: &[ItemId]) -> io::Result<()> {
@@ -170,7 +172,19 @@ impl ItemsetSpool {
         self.buf_count += 1;
         self.count += 1;
         self.item_total += items.len() as u64;
+        self.bytes += rec as u64;
         Ok(())
+    }
+
+    /// Forget every spooled itemset (after they were verified) and free their pages.
+    pub fn clear(&mut self) {
+        for &(id, _) in &self.pages { let _ = self.store.delete_page(id); }
+        self.pages.clear();
+        self.buf.clear();
+        self.buf_count = 0;
+        self.count = 0;
+        self.item_total = 0;
+        self.bytes = 0;
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -983,12 +997,17 @@ impl UpTree {
     }
 }
 
+/// Verifies (and then empties) the candidate spool once it holds this many bytes, so phase 1
+/// needs bounded disk however many candidates it generates.
+type SpoolFlush<'a> = Option<(u64, &'a dyn Fn(&mut ItemsetSpool) -> io::Result<()>)>;
+
 struct UpMiner<'a> {
     variant: UpVariant,
     /// Global minimum item utilities (UP-Growth's DLU/DLN).
     miu: &'a HashMap<ItemId, Utility>,
     ctx: &'a MiningContext,
     min: Utility,
+    flush: SpoolFlush<'a>,
 }
 
 impl UpMiner<'_> {
@@ -1019,6 +1038,13 @@ impl UpMiner<'_> {
         let mut sorted = prefix.clone();
         sorted.sort_unstable();
         out.push_est(&sorted, item_util)?;
+        if let Some((limit, verify)) = self.flush {
+            if out.bytes >= limit {
+                verify(out)?;
+                out.clear();
+                ctx.progress.set_stage("Phase 3: CPB Tree Mining (after a verification round)");
+            }
+        }
 
         // Pass A: local TWU of the items above `item` (path utility = node utility).
         let mut local: HashMap<ItemId, Utility> = HashMap::new();
@@ -1130,7 +1156,7 @@ fn build_up_tree(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, ctx
 /// ancestor's minimal node utility is taken over the partition's transactions only, which is
 /// at least as large (a tighter, still valid DLU/DLN). Phase 2 makes the output exact either way.
 fn mine_up(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, variant: UpVariant,
-           ctx: &MiningContext, cands: &mut ItemsetSpool) -> io::Result<()> {
+           ctx: &MiningContext, cands: &mut ItemsetSpool, flush: SpoolFlush) -> io::Result<()> {
     let mut valid: Vec<(ItemId, Utility)> = twu.iter().filter(|&(_, &t)| t >= min).map(|(&i, &t)| (i, t)).collect();
     valid.sort_by_key(|&(i, t)| (std::cmp::Reverse(t), i));
     let rank: HashMap<ItemId, u32> = valid.iter().enumerate().map(|(k, &(i, _))| (i, k as u32)).collect();
@@ -1140,7 +1166,7 @@ fn mine_up(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, variant: 
         ctx.progress.set_stage("Phase 2: Global UP-Tree Construction (DGN)");
         let (mut arena, tree, miu) = build_up_tree(db, twu, min, ctx)?;
         ctx.progress.set_stage(&format!("Phase 3: CPB Tree Mining ({} node pages in RAM)", arena.resident_pages()));
-        let miner = UpMiner { variant, miu: &miu, ctx, min };
+        let miner = UpMiner { variant, miu: &miu, ctx, min, flush };
         for item in tree.mining_order() {
             miner.mine(&tree, &mut arena, item, &mut Vec::new(), cands)?;
         }
@@ -1157,7 +1183,7 @@ fn mine_up(db: &TxSpool, twu: &HashMap<ItemId, Utility>, min: Utility, variant: 
         }
         true
     })?;
-    let miner = UpMiner { variant, miu: &miu, ctx, min };
+    let miner = UpMiner { variant, miu: &miu, ctx, min, flush };
     let mut prefix_nu: Vec<Utility> = Vec::new();
     super::tree_partition::mine_partitioned(db, &rank, ctx, |item, part, present| {
         let mut arena: NodeArena<UpNode> = NodeArena::new(&ctx.pool, &ctx.guard);
@@ -1203,7 +1229,21 @@ pub fn run_up_growth(path: &std::path::Path, ctx: &mut MiningContext, variant: U
     admit_tree(ctx, if variant == UpVariant::Growth { "UP-Growth" } else { "UP-Growth+" }, &twu, min, &|_| 0)?;
     let db = spool_db(path, &twu, min, ctx)?;
     let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
-    mine_up(&db, &twu, min, variant, ctx, &mut cands)?;
+    // Candidates can outnumber the HUIs by many orders of magnitude (UP-Growth on retail at a
+    // low threshold writes gigabytes of them). Verify them in rounds of at most
+    // AIR_HUIM_SPOOL_MB (default 256 MB) so disk use stays bounded; each candidate is generated
+    // once, so the rounds' outputs are disjoint and together exact.
+    let limit = (std::env::var("AIR_HUIM_SPOOL_MB").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(256.0)
+        * 1048576.0) as u64;
+    let rounds = std::cell::Cell::new(0u32);
+    let verify = |c: &mut ItemsetSpool| {
+        rounds.set(rounds.get() + 1);
+        verify_candidates(c, &db, &twu, ctx).map(|_| ())
+    };
+    mine_up(&db, &twu, min, variant, ctx, &mut cands, Some((limit, &verify)))?;
+    if rounds.get() > 0 {
+        eprintln!("[candidates] verified in {} rounds of <= {:.0} MB (bounded spool)", rounds.get() + 1, limit as f64 / 1048576.0);
+    }
     crate::mining::core::memory_guard::release_free_memory();
 
     ctx.progress.set_stage("Phase 4: Exact Utility Computation");
@@ -1244,7 +1284,7 @@ pub fn run_tku(path: &std::path::Path, ctx: &mut MiningContext) -> io::Result<u6
 
     ctx.progress.set_stage(&format!("TKU: Phase 1 (border {})", border0));
     let mut cands = ItemsetSpool::new(Arc::clone(&ctx.store), &ctx.guard);
-    mine_up(&db_all, &twu, border0, UpVariant::GrowthPlus, ctx, &mut cands)?;
+    mine_up(&db_all, &twu, border0, UpVariant::GrowthPlus, ctx, &mut cands, None)?;
 
     ctx.progress.set_stage("TKU: Phase 2 (exact utilities, SE)");
     let border = AtomicI64::new(border0);

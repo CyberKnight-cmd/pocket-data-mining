@@ -26,6 +26,9 @@ pub struct MiningContext {
     /// Tree miners: partition projection when the global tree would not fit (auto), always,
     /// or never. From AIR_HUIM_TREE_PARTITION.
     pub tree_partition: crate::mining::components::tree_partition::PartitionMode,
+    /// Set once the output file was created: later writers (e.g. the next round of a
+    /// candidate verification) append instead of truncating it.
+    output_opened: std::sync::atomic::AtomicBool,
 }
 
 impl MiningContext {
@@ -45,7 +48,8 @@ impl MiningContext {
         let chunk_bytes = pool.budget_bytes() / 4;
         Self { pool, store, progress, min_utility, output_path, k, threads, chunk_bytes, min_length, max_length, guard, stats,
                remat: crate::mining::components::ul_join::RematMode::from_env(),
-               tree_partition: crate::mining::components::tree_partition::PartitionMode::from_env() }
+               tree_partition: crate::mining::components::tree_partition::PartitionMode::from_env(),
+               output_opened: std::sync::atomic::AtomicBool::new(false) }
     }
 
     /// Compute how many 1-itemset utility lists can fit in the chunk budget.
@@ -116,8 +120,13 @@ impl MiningContext {
         Ok(threads)
     }
 
+    /// The run's output: created by the first call, appended to by later ones.
     pub fn open_writer(&self) -> std::io::Result<ResultWriter> {
-        ResultWriter::new(&self.output_path)
+        if self.output_opened.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            ResultWriter::append(&self.output_path)
+        } else {
+            ResultWriter::new(&self.output_path)
+        }
     }
 
     /// Orchestrates top-level task execution across either a sequential loop or a Rayon
@@ -138,10 +147,8 @@ impl MiningContext {
             let cap = (self.guard.budget() / 64 / MSG_BYTES).clamp(64, 100_000);
             let _queue_res = self.guard.reserve_force(cap * MSG_BYTES);
             let (tx_hui, rx_hui) = mpsc::bounded::<(Vec<crate::types::ItemId>, crate::types::Utility)>(cap);
-            let output_path = self.output_path.clone();
-            
+            let mut writer = self.open_writer().unwrap();
             let writer_thread = std::thread::spawn(move || {
-                let mut writer = ResultWriter::new(&output_path).unwrap();
                 let mut count = 0u64;
                 while let Ok((itemset, utility)) = rx_hui.recv() {
                     writer.write_hui(&itemset, utility).ok();
