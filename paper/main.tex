@@ -1,0 +1,452 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[T1]{fontenc}
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% Marks numbers that come from runs still in progress; must be empty before submission.
+\newcommand{\pending}[1]{\colorbox{yellow!40}{\textsf{\footnotesize PENDING: #1}}}
+
+\begin{document}
+
+\title{Air-HUIM: Exact High-Utility Itemset Mining\\Under a Hard Memory Budget on Edge Hardware}
+
+\author{\IEEEauthorblockN{Arya Gupta}
+\IEEEauthorblockA{\pending{affiliation}}}
+
+\maketitle
+
+\begin{abstract}
+High-utility itemset mining (HUIM) finds sets of items whose combined value, such as profit,
+exceeds a threshold. Its algorithms are designed and evaluated on desktops and servers with
+16--128\,GB of memory, and the reference implementations report memory use but never bound it.
+We present Air-HUIM, a Rust library of 23 HUIM algorithms that run exactly under a
+user-set memory budget. One memory ledger accounts for every structure that grows with the data;
+each algorithm spills, recomputes or partitions its state when the budget is reached, and refuses
+up front when the budget is below a computed minimum. We give a per-algorithm memory model that
+states what stays resident, what is spilled and why the output stays exact. On a 4\,GB Raspberry
+Pi~4, across 14 datasets and budgets from 24\,MB to 2\,GB, no Air-HUIM run was killed for
+memory, all 905 runs with a reference output were exact, and a kernel-enforced limit killed no
+Air-HUIM run. At the same budgets, the reference Java library SPMF ran out of memory in 229 of
+588 runs. Air-HUIM mines the 47.1-million-basket dunnhumby LGSR dataset on the Pi within 1 and
+2\,GB, where SPMF fails in all 8 runs. Verifying every disagreement by a full scan also revealed
+three correctness bugs in SPMF.
+\end{abstract}
+
+\begin{IEEEkeywords}
+high-utility itemset mining, memory-bounded algorithms, edge computing, Raspberry Pi, Rust
+\end{IEEEkeywords}
+
+% ---------------------------------------------------------------------------------------------
+\section{Introduction}
+
+High-utility itemset mining generalises frequent itemset mining: each item in a transaction
+carries a quantity and a unit value, and the task is to find every itemset whose total utility
+in the database reaches a threshold \texttt{min\_util}~\cite{twophase2005,survey2019}. Retail
+analysis is the standard application: which products together bring in the most revenue.
+
+Two decades of work have made HUIM algorithms much faster~\cite{huiminer2012,fhm2014,efim2017,upgrowth2013}.
+They have been evaluated almost exclusively on well-provisioned machines. The standard empirical
+comparison~\cite{zhang2018} ran SPMF~\cite{spmf2016}, the reference implementation of most of
+these algorithms, on a 4.4\,GHz desktop with 128\,GB of RAM and a 128\,GB Java heap. Memory is
+reported as an outcome of a run, never as a constraint on it. Parallel work targets 96-thread
+servers~\cite{dphim2026} and GPUs~\cite{gahuim2026}.
+
+This leaves a practical question open: can these algorithms run \emph{exactly} on the hardware
+where much retail and sensor data is produced, such as a single-board computer with a few
+gigabytes of RAM, without the analyst having to guess whether a run will fit? On a 4\,GB
+Raspberry Pi, SPMF fails on 47.1\,million baskets at every budget we tried, and on the classic
+benchmark datasets it runs out of memory at a 64\,MB heap in 116 of 196 runs
+(Section~\ref{sec:eval}).
+
+We present \textbf{Air-HUIM}, a Rust library in which the memory budget is a first-class input.
+The user gives one number; every algorithm keeps the process within it, uses the memory it is
+given, and returns exactly the same itemsets at every budget. Our contributions are:
+\begin{enumerate}
+\item \textbf{One budget method for 23 algorithms} (Section~\ref{sec:design}): a single memory
+ledger shared with a buffer pool, admission control that refuses cleanly below a computed
+minimum, and feedback from the real resident set size (RSS).
+\item \textbf{A per-algorithm memory model} (Section~\ref{sec:model}): for each engine family,
+what is resident, what is spilled or recomputed, why the output stays exact, and the resulting
+minimum budget.
+\item \textbf{An evaluation on a 4\,GB Raspberry Pi} (Section~\ref{sec:eval}): 1,503 runs over
+14 datasets and budgets from 24\,MB to 2\,GB, against SPMF at the same budgets and under a
+kernel-enforced memory limit, plus a 47.1-million-basket retail dataset.
+\item \textbf{Three correctness bugs in SPMF} (Section~\ref{sec:spmf}), found by checking every
+disagreement against a full scan of the data.
+\end{enumerate}
+To our knowledge, Air-HUIM is the first HUIM library in Rust, and this is the first evaluation of
+exact HUIM on a single-board computer. Memory-aware HUIM itself is not new
+(Section~\ref{sec:related}); what is new is a hard, user-set budget applied uniformly across a
+family of algorithms, with exactness verified at every budget.
+
+% ---------------------------------------------------------------------------------------------
+\section{Background and Related Work}\label{sec:related}
+
+\textbf{Problem.} A database $D$ is a set of transactions; each transaction $T$ assigns a
+quantity $q(i,T)$ to each of its items, and each item has a unit utility $p(i)$. The utility of
+itemset $X$ in $T \supseteq X$ is $u(X,T)=\sum_{i\in X} p(i)\,q(i,T)$, and $u(X)=\sum_{T\supseteq X} u(X,T)$.
+Utility is not anti-monotone, so algorithms prune with upper bounds such as the transaction-weighted
+utility (TWU)~\cite{twophase2005}, remaining utility~\cite{huiminer2012} or sub-tree
+utility~\cite{efim2017}.
+
+\textbf{Algorithm families.} \emph{Two-phase} algorithms generate candidates with an
+over-estimate and verify them in a second scan~\cite{twophase2005}. \emph{Tree} algorithms
+(IHUP, UP-Growth, UP-Growth+~\cite{upgrowth2013}) compress the database into a prefix tree and
+also verify candidates. \emph{Utility-list} algorithms (HUI-Miner~\cite{huiminer2012},
+FHM~\cite{fhm2014}, mHUIMiner~\cite{mhuiminer2017}) join per-itemset lists and need no second
+phase. \emph{Projection} algorithms (EFIM~\cite{efim2017}) project and merge the database at
+each search step. Top-$k$ variants (TKO, TKU~\cite{tko2016}) raise the threshold during the search.
+
+\textbf{Libraries.} SPMF (Java)~\cite{spmf2016} implements most published HUIM algorithms and is
+the de facto reference. PAMI (Python)~\cite{pami2024} covers fewer. Neither bounds memory; the
+Java heap limit only decides when a run fails.
+
+\textbf{Parallel HUIM.} DPHIM~\cite{dphim2023,dphim2026} decomposes the search dynamically and
+places tasks NUMA-aware, reaching up to 72.7$\times$ over a tuned serial run and 40.4$\times$ at
+96 threads. GA-HUIM maps HUIM onto GPUs~\cite{gahuim2026}. These target throughput on large
+machines; memory is not bounded.
+
+\textbf{Memory-aware mining.} Erwin et al.\ use a parallel projection that falls back to disk when
+memory is short~\cite{ctuprol2008}; Vu and Nguyen propose a disk-based HUIM
+algorithm~\cite{vu2011}; PTM partitions by prefix to mine top-$k$ HUIs on massive
+data~\cite{ptm2020}. Out-of-core frequent itemset mining is mature~\cite{outofcore2006}. Each of
+these is one algorithm; none takes a user-set budget or covers a family of algorithms.
+
+\textbf{Mining on single-board computers.} The closest prior work runs Apriori, a frequent (not
+utility) itemset algorithm, on a \emph{cluster} of Raspberry Pis to save energy~\cite{picluster2016}.
+A search of OpenAlex, arXiv and Crossref found no HUIM evaluation on a single-board computer.
+
+% ---------------------------------------------------------------------------------------------
+\section{Design}\label{sec:design}
+
+\textbf{The budget.} The user passes one number $B$ (e.g.\ \texttt{-b 64} for 64\,MB). The goal
+is that the process RSS stays within $B$, that the run uses $B$ (data stays in RAM while it fits),
+and that the output is identical at every $B$.
+
+\textbf{One ledger.} A single \texttt{MemoryGuard} accounts for everything that grows with the data:
+native structures (utility lists, projections, trees, the pair-utility matrix, the top-$k$ heap)
+through RAII reservations released when the structure is dropped; buffer-pool frames, which the
+pool charges when it caches a page; and the process baseline, read once from \texttt{VmRSS}. The
+ledger's limit is $B$ minus a margin of 7\,MB\,+\,3\% (at most 128\,MB and at most $B/2$) for what it
+cannot see: allocator metadata, I/O buffers and thread stacks. A reservation either succeeds or
+tells the caller to fall back (spill, recompute or partition); small bounded buffers use a forced
+reservation that is accounted but never refused.
+
+\textbf{Buffer pool and spill.} Spilled data lives in a page store on disk behind a buffer pool that
+shares the ledger. Cached pages are copies of spilled data, so when a native reservation fails the
+pool evicts first. Pages of dead search branches are discarded without being written. Small spilled
+lists are packed into shared pages so that a starved search does not create one file per list.
+
+\textbf{Admission control.} After its first pass, each engine estimates the memory it cannot spill,
+as a fixed part plus a per-worker part. If one worker does not fit, the run stops at once with the
+smallest workable budget (``Use at least \texttt{-b} 33''); otherwise the thread count is lowered
+until the per-worker sets use at most half of the free budget.
+
+\textbf{RSS feedback.} The ledger sees allocations, not resident pages: freed memory that the
+allocator keeps, and fragmentation between long- and short-lived blocks, raise RSS above the ledger.
+A background thread reads RSS every 250\,ms, returns free heap pages to the OS
+(\texttt{malloc\_trim}), and lowers the ledger limit by any excess over 92\% of $B$ (never below
+half its starting value), raising it again when RSS falls.
+
+\textbf{Dirty pages.} Under a kernel memory limit (Linux cgroups), dirty page-cache pages count
+against the process. Spill writes therefore start write-back immediately and wait for it every
+16\,MB, so a burst of spilling cannot push the process over a hard limit.
+
+\textbf{Threads.} The top-level search is split into tasks run by a work-stealing pool; results go
+to one writer thread over a bounded channel whose capacity is reserved from the ledger, so a slow
+disk applies backpressure instead of growing memory.
+
+% ---------------------------------------------------------------------------------------------
+\section{Per-Algorithm Memory Model}\label{sec:model}
+
+Table~\ref{tab:model} summarises, for each engine family, what must stay resident, what is spilled
+or recomputed, and why exactness holds. The minimum budget is the resident set plus the margin.
+
+\begin{table*}[t]
+\centering
+\caption{Memory model of the five engine families. ``Resident'' is what admission control requires; everything else is charged to the ledger and spilled, recomputed or partitioned when the budget is reached.}
+\label{tab:model}
+\small
+\begin{tabular}{@{}p{3.1cm}p{4.0cm}p{4.6cm}p{4.6cm}@{}}
+\toprule
+Engine (algorithms) & Resident (cannot be spilled) & Spilled, recomputed or partitioned & Why the output stays exact \\
+\midrule
+Utility lists (HUI-Miner, FHM, FHM+, HUP-Miner, mHUIMiner, TKO, REPT, HAUI-Miner, HUIM-MMU, IncFHM, SHUIM)
+& per-item list headers; one streaming join per worker (about four chunks); output queue
+& list bodies in chunks (spilled to packed pages, or dropped and recomputed from their parents when that is cheaper); 1-itemset lists built by external sort; pair-utility matrix (EUCS) built in partitions
+& joins stream chunk by chunk and give the same lists; a dropped list is rebuilt exactly from its parents; EUCS is disabled rather than truncated (a partial matrix would prune valid itemsets) \\
+Projection (EFIM, EFIM-Closed)
+& item renaming maps, sub-tree and local utility arrays; one projection per worker (two for EFIM-Closed)
+& database and projections as pool pages; first-level tasks in budget-sized batches
+& projections and transaction merging are computed from the same data, only stored elsewhere \\
+Trees (IHUP, UP-Growth, UP-Growth+, HUP-Tree, HUI-Trie, TKU)
+& TWU of all items; two node pages; candidate and database spool buffers
+& a tree that does not fit is not built: partition projection~\cite{fpgrowth2000} builds one small tree per item; candidates spooled and verified in bounded rounds
+& a partition tree has the same node utilities for its item as the global tree (bounds at least as tight); phase~2 computes exact utilities \\
+Two-phase (Two-Phase)
+& per-item list headers; one join per worker
+& candidates always on disk, verified in budget-sized batches
+& verification computes each candidate's exact utility \\
+Heuristics (HUIM-GA, HUIM-BPSO, MHUI-ACO)
+& per-item index; one chunk per selected item
+& set of HUIs already output becomes a Bloom filter of the same size when it no longer fits
+& approximate by design; a false positive can only skip a new HUI, never output a wrong one \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Utility-list engine.} A list body longer than one chunk (4,096 entries, smaller under tiny
+budgets) is a sequence of chunks; a join reads the prefix list and the two extension lists one
+chunk at a time and writes the result chunk by chunk, so its working set is constant in the list
+lengths. When a new list does not fit, a cost model chooses between writing it to disk and
+dropping it: a dropped list keeps a recipe and is recomputed from its parents, which are alive
+higher up the search, when it is next needed. Costs are measured during the run. The extension
+items carry only their last item; the prefix is passed down the search, so no itemset is copied
+per extension. EUCS~\cite{fhm2014} is stored as a dense triangular matrix of saturating 32-bit
+cells when it fits (a saturated cell never prunes) and otherwise in hashed partitions; it is never
+truncated, because a truncated EUCS silently drops valid itemsets.
+
+\textbf{Projection engine.} The database and every projection live in pool pages when they do not
+fit; EFIM's transaction merging works on the same pages. EFIM-Closed keeps a spilled projection
+and the projection of its child resident at the same time, hence two per worker.
+
+\textbf{Tree engine.} A spilled prefix tree is mined one node-link step at a time, and each step
+can be a page load: UP-Growth+ on retail at 32\,MB read 207\,GB of pages for a 26\,MB tree. When the
+tree's size bound (one node per item occurrence) exceeds the free budget, the miners switch to
+partition projection: each transaction is written to the partition of its last item; items are
+processed from the bottom of the order up, each with a small tree built in RAM and mined with the
+unchanged per-item code; then each row moves to the partition of its new last item. All disk access
+is sequential. Candidate itemsets are spooled to disk and verified, then cleared, whenever the spool
+reaches a bounded size, instead of all at the end.
+
+\textbf{Resulting bound.} If the ledger stays within $B$ minus the margin, and the margin covers
+what the ledger cannot see, the RSS stays within $B$. The first condition holds by construction:
+every growing structure is reserved before it is allocated. The second is empirical. We calibrated
+the margin on chainstore (RSS exceeds the ledger peak by about 6.5\,MB at 24--64\,MB budgets and
+about 30\,MB at 1\,GB) and check it on every run (Section~\ref{sec:budget}).
+
+% ---------------------------------------------------------------------------------------------
+\section{Evaluation}\label{sec:eval}
+
+\subsection{Setup}
+
+\textbf{Hardware.} Raspberry Pi~4 Model~B, 4\,GB RAM, quad-core Cortex-A72 at 1.8\,GHz, 64\,GB SD
+card, Debian~13, Linux~6.18. CPU frequency stayed at 1.8\,GHz with no throttling in any run.
+Speed comparisons at one thread each were run on a laptop (Section~\ref{sec:speed}).
+
+\textbf{Software.} Air-HUIM built with Rust~1.99 in release mode. SPMF~2.67a~\cite{spmf2016} on
+OpenJDK~25 with \texttt{-Xmx} set to the budget. Both read the same files (checksums recorded per
+run) with the same thresholds.
+
+\textbf{Datasets.} Table~\ref{tab:data} lists the 14 standard benchmark datasets and LGSR, a
+simulated but realistic retail dataset from dunnhumby~\cite{lgsr}, converted to 47.1\,M baskets
+(3.4\,GB in SPMF format).
+
+\begin{table}[t]
+\centering
+\caption{Datasets and thresholds (\% of total utility).}
+\label{tab:data}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Dataset & Transactions & Items & Avg.\ length & min\_util (\%) \\
+\midrule
+foodmart & 4,141 & 1,559 & 4.4 & 0.025 \\
+chess & 3,196 & 75 & 37.0 & 25 \\
+mushroom & 8,124 & 119 & 23.0 & 5 \\
+ecommerce & 14,975 & 3,468 & 11.6 & 0.2 \\
+pumsb & 49,046 & 2,113 & 74.0 & 23 \\
+liquor & 52,131 & 4,026 & 7.9 & 0.005 \\
+BMS & 59,602 & 497 & 2.5 & 2.1 \\
+connect & 67,557 & 129 & 43.0 & 32 \\
+retail & 88,162 & 16,470 & 10.3 & 0.01 \\
+fruithut & 181,970 & 1,265 & 3.6 & 0.01 \\
+accidents & 340,183 & 468 & 33.8 & 12 \\
+kosarak & 990,002 & 41,270 & 8.1 & 1 \\
+chainstore & 1,112,949 & 46,086 & 7.2 & 0.1 \\
+chicago & 2,662,309 & 35 & 1.8 & 0.005 \\
+LGSR & 47,098,416 & 4,997 & 6.5 & 0.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Protocol.} A harness runs one job at a time, samples RSS every 100\,ms,
+and records status, wall time, peak RSS, the binary's hash and the dataset's checksum. Runs are
+capped at 10\,min (LGSR: 4\,h). Exactness is checked against a reference output computed by
+Air-HUIM FHM at a large budget; every disagreement between implementations is settled by a full
+scan of the dataset (Section~\ref{sec:spmf}). A run is \emph{out of memory} when the JVM reports
+it, or when the kernel limit or the watchdog kills it.
+
+\subsection{Exactness}
+
+All 905 Air-HUIM runs with a reference output matched it exactly, at every budget and thread
+count. Top-$k$ and REPT runs have no fixed reference; a full scan confirmed every utility in the
+top-$k$ outputs on every dataset. The three metaheuristics are approximate by design and excluded.
+
+\subsection{Budget adherence}\label{sec:budget}
+
+Of 1,503 Air-HUIM runs, 1,489 peaked at or below the budget. Thirteen exceeded it by 0.1--3.2\,MB,
+all at 24--64\,MB; the fourteenth, EFIM-Closed on LGSR at 2\,GB, peaked at 2,075\,MB (+1.3\%).
+Table~\ref{tab:hard} shows both tools under two hard limits: a kernel-enforced cgroup memory limit,
+and a watchdog that kills any process whose RSS exceeds the budget.
+
+\begin{table}[t]
+\centering
+\caption{Runs killed under hard memory limits (Raspberry Pi).}
+\label{tab:hard}
+\footnotesize
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Limit & Budgets & Air-HUIM killed & SPMF killed \\
+\midrule
+cgroup \texttt{MemoryMax} & 64--256\,MB & 0 / 90 & 72 / 90 \\
+Watchdog (RSS $>$ budget) & 64--256\,MB & 0 / 32 & 32 / 32 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Air-HUIM versus SPMF at the same budget}
+
+For every algorithm both libraries implement, we ran both on each dataset at 64\,MB, 256\,MB and
+1\,GB: 196 pairs per budget. Table~\ref{tab:pairs} counts the outcomes.
+
+\begin{table}[t]
+\centering
+\caption{Outcomes of 196 Air-HUIM/SPMF pairs per budget on the Pi (same algorithm, dataset and budget; 10\,min cap).}
+\label{tab:pairs}
+\footnotesize
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Budget & Both & Only Air & Only SPMF & Neither & SPMF OOM \\
+\midrule
+64\,MB & 68 & 68 & 0 & 60 & 116 \\
+256\,MB & 85 & 60 & 1 & 50 & 79 \\
+1\,GB & 102 & 63 & 0 & 31 & 34 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At 64\,MB, only Air-HUIM finished in 68 pairs and only SPMF in none. Where neither finished,
+Air-HUIM hit the time cap without running out of memory; SPMF ran out of memory in 56 of those 60
+pairs at 64\,MB.
+
+\subsection{47 million baskets on a Raspberry Pi}
+
+Table~\ref{tab:lgsr} shows LGSR on the Pi at 1 and 2\,GB, with 4 threads for Air-HUIM. SPMF ran out
+of memory in all 8 runs, after 1--13 minutes. Air-HUIM finished 7 of 8 with the exact 52 HUIs;
+EFIM-Closed at 1\,GB reached the 4-hour cap without exceeding its budget.
+
+\begin{table}[t]
+\centering
+\caption{LGSR (47.1\,M baskets, min\_util 0.2\%) on the 4\,GB Raspberry Pi.}
+\label{tab:lgsr}
+\footnotesize
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Algorithm & Budget & SPMF & Air-HUIM time & Air peak RSS \\
+\midrule
+FHM & 2\,GB & OOM, 12\,min & 70\,min & 1,875\,MB \\
+EFIM & 2\,GB & OOM, 3\,min & 71\,min & 1,982\,MB \\
+EFIM-Closed & 2\,GB & OOM, 3\,min & 3.0\,h & 2,075\,MB \\
+UP-Growth+ & 2\,GB & OOM, 13\,min & 66\,min & 102\,MB \\
+FHM & 1\,GB & OOM, 7\,min & 36\,min & 894\,MB \\
+EFIM & 1\,GB & OOM, 1\,min & 144\,min & 989\,MB \\
+EFIM-Closed & 1\,GB & OOM, 1\,min & $>$4\,h (cap) & 1,004\,MB \\
+UP-Growth+ & 1\,GB & OOM, 7\,min & 71\,min & 101\,MB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+UP-Growth+ needs about 100\,MB at either budget: partition projection keeps only one item's
+tree in memory at a time.
+
+\subsection{Speed at one thread each}\label{sec:speed}
+
+SPMF is single-threaded, so we compare one thread against one thread on a laptop, repeating each
+of the 102 pairs that both libraries finished at 1\,GB on the Pi five times and reporting the
+median. \pending{1-thread table, 102 pairs $\times$ 5 repeats; run finishing 1 Nov, 21:00}
+
+\subsection{Thread scaling}
+
+Table~\ref{tab:threads} shows Air-HUIM on the Pi with 1, 2 and 4 threads at 1\,GB. Speed-ups from
+1 to 4 threads range from 1.1$\times$ to 3.7$\times$ (median 1.8$\times$). Short runs (EFIM on
+chainstore and kosarak, under 12\,s) are dominated by reading the input, which is sequential. FHM
+and HUI-Miner on accidents are slower at 4 threads than at 2. \pending{laptop 1--16 threads on
+LGSR, chainstore$\times$40 and H\&M; queued after the 1-thread table}
+
+\begin{table}[t]
+\centering
+\caption{Air-HUIM wall time (s) by thread count on the Pi, 1\,GB budget.}
+\label{tab:threads}
+\footnotesize
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Dataset & Algorithm & 1 & 2 & 4 & 1$\to$4 \\
+\midrule
+\multirow{3}{*}{accidents} & EFIM & 98 & 63 & 41 & 2.4$\times$ \\
+ & FHM & 342 & 174 & 224 & 1.5$\times$ \\
+ & HUI-Miner & 347 & 167 & 192 & 1.8$\times$ \\
+\multirow{3}{*}{chainstore} & EFIM & 8 & 8 & 7 & 1.1$\times$ \\
+ & FHM & 21 & 17 & 16 & 1.3$\times$ \\
+ & HUI-Miner & 325 & 171 & 89 & 3.7$\times$ \\
+\multirow{3}{*}{kosarak} & EFIM & 11 & 9 & 8 & 1.4$\times$ \\
+ & FHM & 99 & 57 & 36 & 2.8$\times$ \\
+ & HUI-Miner & 199 & 104 & 58 & 3.4$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------------------------------
+\section{Correctness Problems Found in SPMF}\label{sec:spmf}
+
+Every itemset on which SPMF and Air-HUIM disagreed was settled by computing its exact utility in a
+plain scan of the dataset, independent of both libraries. Air-HUIM's output was exact in every
+comparison. SPMF showed three problems (Table~\ref{tab:spmf}).
+
+\begin{table}[t]
+\centering
+\caption{Correctness problems in SPMF 2.67a.}
+\label{tab:spmf}
+\footnotesize
+\begin{tabular}{@{}p{1.3cm}p{3.1cm}p{3.2cm}@{}}
+\toprule
+Algorithm & Problem & Effect \\
+\midrule
+FHM, FHM+ & item comparator computes \texttt{(int)(twu(a)-twu(b))}: a 64-bit difference truncated to 32 bits & once TWUs differ by $2^{31}$, the order is inconsistent; on LGSR 20,134 of 1.52\,M item pairs are misordered and one true HUI is missed \\
+mHUIMiner & item labels in the output are corrupted & correct count, wrong itemsets on 10 of 12 datasets (retail: 16,308 of 22,479) \\
+TKU & returns fewer than $k$ itemsets & on chicago with $k=100$ it returns 4; SPMF's own TKO returns 100 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The FHM problem was confirmed in the bytecode (\texttt{lsub} followed by \texttt{l2i}); it did not
+appear on the 14 benchmark datasets, but appears on retail data with billions in total utility. The TKU problem reproduces with a 1\,GB and a 4\,GB heap, so it is
+not a memory effect.
+
+% ---------------------------------------------------------------------------------------------
+\section{Limitations}
+
+The budget is not yet a strict ceiling: 14 of 1,503 runs exceeded it, by at most 3.2\,MB at small
+budgets and by 1.3\% for EFIM-Closed on LGSR; we have not yet found the allocation the ledger
+misses. Some algorithms are slow at small budgets for reasons unrelated to memory (TWU-only bounds
+give too many candidates for IHUP, HUI-Trie and HUP-Tree on retail and kosarak). The Pi
+experiments ran each configuration once; the speed comparison uses five repeats. LGSR is simulated
+retail data.
+
+\section{Conclusion}
+
+Air-HUIM shows that the standard HUIM algorithms can run exactly under a hard memory budget on a
+4\,GB single-board computer, including on 47 million baskets, where the reference implementation
+fails. The method is uniform across 23 algorithms: one ledger, spill or recompute or partition, and
+clean refusal below a computed minimum. The library, benchmark harness and all run records are
+available at \pending{repository URL and archive DOI}.
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}
