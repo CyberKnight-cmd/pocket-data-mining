@@ -9,8 +9,9 @@
 \usepackage[hidelinks]{hyperref}
 
 % Marks numbers that come from runs still in progress; must be empty before submission.
-\newcommand{\pending}[1]{\colorbox{yellow!40}{\textsf{\footnotesize PENDING: #1}}}
+\newcommand{\pending}[1]{\textcolor{red}{\textsf{[PENDING: #1]}}}
 
+\setlength{\tabcolsep}{4pt}
 \begin{document}
 
 \title{Air-HUIM: Exact High-Utility Itemset Mining\\Under a Hard Memory Budget on Edge Hardware}
@@ -413,11 +414,11 @@ comparison. SPMF showed three problems (Table~\ref{tab:spmf}).
 \caption{Correctness problems in SPMF 2.67a.}
 \label{tab:spmf}
 \footnotesize
-\begin{tabular}{@{}p{1.3cm}p{3.1cm}p{3.2cm}@{}}
+\begin{tabular}{@{}p{1.4cm}p{2.9cm}p{3.6cm}@{}}
 \toprule
 Algorithm & Problem & Effect \\
 \midrule
-FHM, FHM+ & item comparator computes \texttt{(int)(twu(a)-twu(b))}: a 64-bit difference truncated to 32 bits & once TWUs differ by $2^{31}$, the order is inconsistent; on LGSR 20,134 of 1.52\,M item pairs are misordered and one true HUI is missed \\
+FHM, FHM+ & item comparator casts the 64-bit TWU difference to a 32-bit \texttt{int} & once TWUs differ by $2^{31}$, the order is inconsistent; on LGSR 20,134 of 1.52\,M item pairs are misordered and one true HUI is missed \\
 mHUIMiner & item labels in the output are corrupted & correct count, wrong itemsets on 10 of 12 datasets (retail: 16,308 of 22,479) \\
 TKU & returns fewer than $k$ itemsets & on chicago with $k=100$ it returns 4; SPMF's own TKO returns 100 \\
 \bottomrule
