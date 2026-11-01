@@ -8,7 +8,8 @@
 \usepackage{url}
 \usepackage{graphicx}
 \usepackage{tikz}
-\usetikzlibrary{positioning,arrows.meta,fit,calc}
+\usetikzlibrary{positioning,arrows.meta,fit,calc,backgrounds}
+\usepackage{array}
 \usepackage[hidelinks]{hyperref}
 
 % Marks numbers that come from runs still in progress; must be empty before submission.
@@ -31,8 +32,10 @@ exceeds a threshold. Its algorithms are designed and evaluated on desktops and s
 We present Air-HUIM, a Rust library of 23 HUIM algorithms that run exactly under a
 user-set memory budget. One memory ledger accounts for every structure that grows with the data;
 each algorithm spills, recomputes or partitions its state when the budget is reached, and refuses
-up front when the budget is below a computed minimum. We give a per-algorithm memory model that
-states what stays resident, what is spilled and why the output stays exact. On a 4\,GB Raspberry
+up front when the budget is below a computed minimum. The unifying idea is that the location of search
+state never changes the result: state can be spilled, recomputed from its parents, avoided by
+partitioning the search, or relaxed to a looser valid bound, and memory pressure costs time,
+never answers. On a 4\,GB Raspberry
 Pi~4, across 14 datasets and budgets from 24\,MB to 2\,GB, no Air-HUIM run was killed for
 memory, all 905 runs with a reference output were exact, and a kernel-enforced limit killed no
 Air-HUIM run. At the same budgets, the reference Java library SPMF ran out of memory in 229 of
@@ -81,12 +84,12 @@ We present \textbf{Air-HUIM}, a Rust library in which the memory budget is a fir
 The user gives one number; every algorithm keeps the process within it, uses the memory it is
 given, and returns exactly the same itemsets at every budget. Our contributions are:
 \begin{enumerate}
-\item \textbf{One budget method for 23 algorithms} (Section~\ref{sec:design}): a single memory
-ledger shared with a buffer pool, admission control that refuses cleanly below a computed
-minimum, and feedback from the real resident set size (RSS).
-\item \textbf{A per-algorithm memory model} (Section~\ref{sec:model}): for each engine family,
-what is resident, what is spilled or recomputed, why the output stays exact, and the resulting
-minimum budget.
+\item \textbf{Budgeted state, one idea for 23 algorithms} (Section~\ref{sec:idea}): four moves on
+search state (spill, recompute, partition, relax) that provably preserve the output, a resident
+core below which a run refuses, and an operator matrix that gives every algorithm's memory model.
+\item \textbf{An architecture that executes the moves} (Section~\ref{sec:design}): engines reserve
+every growing structure from one state manager (ledger, move policy, admission control, RSS
+feedback) that shares its budget with the buffer pool.
 \item \textbf{An evaluation on a 4\,GB Raspberry Pi} (Section~\ref{sec:eval}): 1,503 runs over
 14 datasets and budgets from 24\,MB to 2\,GB, against SPMF at the same budgets and under a
 kernel-enforced memory limit, plus a 47.1-million-basket retail dataset.
@@ -136,41 +139,215 @@ utility) itemset algorithm, on a \emph{cluster} of Raspberry Pis to save energy~
 A search of OpenAlex, arXiv and Crossref found no HUIM evaluation on a single-board computer.
 
 % ---------------------------------------------------------------------------------------------
-\section{Design}\label{sec:design}
+\section{Budgeted State: One Idea for 23 Algorithms}\label{sec:idea}
+
+HUIM algorithms differ in data structures, but every exact one has the same shape: it enumerates
+itemsets in a search tree, attaches \emph{state} to the nodes, prunes with upper bounds computed
+from that state, and reports each enumerated itemset whose exact utility reaches
+\texttt{min\_util}. The state falls into five kinds: the \emph{input} database (after TWU
+filtering); \emph{base} structures built from it (1-itemset utility lists, a prefix tree, a
+projected database); \emph{derived} state of inner nodes (the list or projection of $P\!\cup\!\{x\}$,
+computed from its parents); \emph{pruning aids} (the pair-utility matrix EUCS, local and sub-tree
+utilities); and \emph{candidates} awaiting verification in two-phase and tree algorithms.
+
+Air-HUIM rests on one observation: \textbf{where a piece of state lives does not affect which
+itemsets are reported, as long as the state is either restored exactly or replaced by something
+that is still a valid upper bound.} So when the budget runs out, each piece of state can be handled
+by one of four \emph{moves} (Fig.~\ref{fig:moves}), and below an irreducible \emph{resident core}
+the run refuses:
+
+\begin{enumerate}
+\item \textbf{Spill:} write it to the page store; a reload restores it byte for byte.
+\item \textbf{Recompute:} drop derived state and rebuild it from its parents, which are alive
+higher in the search; the rebuild is a deterministic function of them.
+\item \textbf{Partition:} split the work so that each part's state fits, such that every itemset is
+enumerated in exactly one part, with access to all transactions that contain it.
+\item \textbf{Relax:} drop or coarsen a pruning aid, but only towards a looser bound that is still
+an upper bound. Pruning less costs time, never results.
+\item[] \hspace{-1.3em}\textbf{Refuse:} if even the resident core (what one worker needs to make
+progress) does not fit, stop before mining and report the smallest workable budget.
+\end{enumerate}
+
+\textbf{Proposition (exactness under moves).} \emph{For an exact algorithm whose bounds are valid
+upper bounds, any sequence of the four moves leaves its output unchanged.}
+
+\emph{Sketch.} Spill and recompute restore identical state, so every later computation is
+identical. Partition enumerates each itemset once, from all transactions containing it, so its
+utility is unchanged. Relax keeps every bound valid, so no itemset with $u(X)\ge$
+\texttt{min\_util} (or ancestor of one) is pruned; extra enumerated itemsets are reported only if
+their exact utility reaches the threshold. In every case the reported set is exactly
+$\{X : u(X) \ge \texttt{min\_util}\}$. \hfill$\square$
+
+The proposition also says what \emph{must not} be done. A truncated EUCS that forgets pairs and
+treats missing pairs as zero is a \emph{tighter}, invalid bound: it prunes valid itemsets. We
+found exactly this failure in an early version, which is why EUCS is disabled rather than
+truncated. The one deliberate exception is the metaheuristics, which are approximate by design:
+their set of already-reported itemsets becomes a Bloom filter, which can only skip a new itemset.
+
+\textbf{The operator matrix.} Table~\ref{tab:matrix} applies the moves to each kind of state in each
+engine. Reading a row gives an algorithm's complete memory model: what is spilled, recomputed,
+partitioned or relaxed, and what stays resident. Admission control computes the resident core from
+the first pass, so the minimum budget is known before mining starts.
 
 \begin{figure}[t]
 \centering
-\resizebox{\columnwidth}{!}{\begin{tikzpicture}[font=\footnotesize, node distance=4mm and 3mm,
-  box/.style={draw=black!55, rounded corners=1.5pt, align=center, inner sep=3pt, minimum height=6mm},
-  eng/.style={box, fill=blue!7, minimum width=12mm, text width=12mm, font=\scriptsize},
-  arr/.style={-{Stealth[length=1.6mm]}, black!65}]
-\node[box, text width=0.9\columnwidth] (alg) {23 algorithms (FHM, EFIM, UP-Growth+, TKO, \dots)};
-\node[eng, below=4mm of alg.south west, anchor=north west] (ul) {Utility lists};
-\node[eng, right=1.2mm of ul] (pj) {Projection};
-\node[eng, right=1.2mm of pj] (tr) {Trees};
-\node[eng, right=1.2mm of tr] (tp) {Two-phase};
-\node[eng, right=1.2mm of tp] (he) {Heuristics};
-\node[box, fill=orange!12, below=6mm of pj.south east, anchor=north, text width=0.5\columnwidth] (led)
-  {\textbf{Memory ledger}\\[-1pt] limit $=B-$margin};
-\node[box, left=3mm of led, text width=13mm, fill=black!4] (adm) {Admission control};
-\node[box, right=3mm of led, text width=13mm, fill=black!4] (rss) {RSS feedback};
-\node[box, below=5mm of led, text width=0.5\columnwidth, fill=blue!7] (pool) {Buffer pool (cached spilled pages)};
-\node[box, below=4mm of pool, text width=0.5\columnwidth, fill=black!4] (disk) {Page store on disk};
-\foreach \e in {ul,pj,tr,tp,he} \draw[arr] (alg.south -| \e) -- (\e);
-\foreach \e in {ul,pj,tr,tp,he} \draw[arr] (\e.south) -- (led.north -| \e) ;
-\draw[arr] (adm) -- node[above, font=\scriptsize]{} (led);
-\draw[arr] (rss) -- (led);
-\draw[arr, <->] (led) -- node[right, font=\scriptsize]{shared budget} (pool);
-\draw[arr, <->] (pool) -- node[right, font=\scriptsize]{spill / reload} (disk);
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[font=\footnotesize,
+  nd/.style={circle, draw=black!60, inner sep=0pt, minimum size=4.2mm, font=\scriptsize},
+  hot/.style={nd, fill=orange!25, draw=orange!80!black, thick},
+  st/.style={draw=black!50, rounded corners=1pt, fill=orange!10, font=\scriptsize, inner sep=2pt},
+  mv/.style={draw=black!45, rounded corners=2pt, align=center, text width=24mm, inner sep=3pt, font=\scriptsize},
+  arr/.style={-{Stealth[length=1.5mm]}, black!65}]
+% search tree
+\node[nd] (r) at (0,0) {$\emptyset$};
+\node[nd] (a) at (-1.1,-0.8) {a}; \node[nd] (b) at (0,-0.8) {b}; \node[nd] (c) at (1.1,-0.8) {c};
+\node[nd] (ab) at (-1.6,-1.6) {ab}; \node[nd] (ac) at (-0.6,-1.6) {ac}; \node[hot] (bc) at (0.5,-1.6) {bc};
+\node[nd] (abc) at (-1.6,-2.4) {\tiny abc};
+\foreach \u/\v in {r/a,r/b,r/c,a/ab,a/ac,b/bc,ab/abc} \draw[black!50] (\u)--(\v);
+\node[st, below=2.5mm of bc, align=center] (state) {state of bc does\\ not fit the budget};
+\draw[black!40] (state)--(bc);
+\coordinate (j) at (1.75,-1.6);
+\draw[black!65, thick] (bc.east)--(j);
+\node[mv, fill=blue!8] (sp) at (3.6,0.2) {\textbf{Spill}\\ write pages, reload\\ byte for byte};
+\node[mv, fill=green!10] (rc) at (3.6,-0.85) {\textbf{Recompute}\\ rebuild from parents\\ $f(\mathrm{b},\mathrm{c})$};
+\node[mv, fill=yellow!20] (pt) at (3.6,-1.9) {\textbf{Partition}\\ split the search;\\ each itemset in one part};
+\node[mv, fill=magenta!10] (rx) at (3.6,-2.95) {\textbf{Relax}\\ drop a pruning aid;\\ bound stays valid};
+\foreach \m in {sp,rc,pt,rx} \draw[arr] (j) to[out=0,in=180] (\m.west);
 \end{tikzpicture}}
-\caption{Air-HUIM's memory design. Five engines implement the 23 algorithms; every structure that
-grows with the data is reserved from one ledger, which the buffer pool shares. Admission control
-refuses budgets below a computed minimum, and RSS feedback lowers the ledger limit when real memory
-use exceeds what the ledger sees.}
-\label{fig:design}
+\caption{The four moves. When a node's state does not fit, it can be spilled, recomputed from its
+parents, avoided by partitioning the search, or, for pruning aids only, relaxed to a looser valid
+bound. Each move leaves the set of reported itemsets unchanged.}
+\label{fig:moves}
 \end{figure}
 
-Fig.~\ref{fig:design} shows the design.
+\setlength{\fboxsep}{1.2pt}
+\newcommand{\mS}[1]{\colorbox{blue!8}{S}~#1}
+\newcommand{\mR}[1]{\colorbox{green!10}{R}~#1}
+\newcommand{\mP}[1]{\colorbox{yellow!20}{P}~#1}
+\newcommand{\mX}[1]{\colorbox{magenta!10}{X}~#1}
+\begin{table*}[t]
+\centering
+\caption{The operator matrix: each engine's state and the move applied to it when the budget is
+reached. \colorbox{blue!8}{S}\,spill, \colorbox{green!10}{R}\,recompute,
+\colorbox{yellow!20}{P}\,partition, \colorbox{magenta!10}{X}\,relax. The last column is the
+resident core that admission control requires.}
+\label{tab:matrix}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}*{7}{>{\raggedright\arraybackslash}p{2.25cm}}@{}}
+\toprule
+Engine (algorithms) & Input DB & Base structures & Derived search state & Pruning aids & Candidates & Resident core \\
+\midrule
+\textbf{Utility lists} (HUI-Miner, FHM, FHM+, HUP-Miner, mHUIMiner, TKO, REPT, HAUI-Miner, HUIM-MMU, IncFHM, SHUIM)
+& \mS{filtered DB spool}
+& \mS{1-itemset lists by external sort, multi-pass merge}
+& \mS{list chunks} or \mR{dropped list rebuilt from parents (cost model)}
+& \mP{EUCS built in partitions}; \mX{EUCS disabled, never truncated}
+& none
+& list headers; one streaming join per worker; top-$k$ heap \\
+\textbf{Projection} (EFIM, EFIM-Closed)
+& \mS{paged database}
+& item renaming (resident)
+& \mS{projections as pool pages}; \mP{first-level tasks in batches}
+& sub-tree and local utility arrays (resident)
+& none
+& one projection per worker (two for EFIM-Closed) \\
+\textbf{Trees} (IHUP, UP-Growth, UP-Growth+, HUP-Tree, HUI-Trie, TKU)
+& \mS{database spool}
+& \mP{one small tree per item instead of the global tree}
+& \mP{conditional trees inside the item's partition}
+& node bounds per partition (valid, at least as tight)
+& \mS{spooled}; \mP{verified in bounded rounds}
+& TWU map; two node pages; spool buffers \\
+\textbf{Two-phase} (Two-Phase)
+& \mS{filtered DB spool}
+& \mS{1-itemset lists}
+& \mS{list chunks}
+& TWU only
+& \mS{on disk}; \mP{verified in batches}
+& list headers; one join per worker \\
+\textbf{Heuristics} (HUIM-GA, HUIM-BPSO, MHUI-ACO)
+& \mS{DB segments}
+& \mS{streamed per selected item}
+& population (resident)
+& \mX{reported set becomes a Bloom filter (approximate by design)}
+& none
+& per-item index; one chunk per item \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+% ---------------------------------------------------------------------------------------------
+\section{Architecture}\label{sec:design}
+
+Fig.~\ref{fig:arch} shows how the moves are executed. Engines never allocate growing state
+directly: they ask the \emph{state manager} for a reservation, and a refusal is their signal to
+apply a move. The state manager owns the ledger, the cost model that chooses between spilling and
+recomputing, admission control, and a feedback loop from the real RSS. Below it, one storage layer
+serves every engine.
+
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[font=\footnotesize, node distance=3mm,
+  box/.style={draw=black!55, rounded corners=2pt, align=center, inner sep=3pt, minimum height=7mm},
+  eng/.style={box, fill=blue!7, text width=21mm, minimum height=6.5mm, font=\scriptsize},
+  lay/.style={draw=black!35, rounded corners=4pt, fill=black!2, inner sep=4pt},
+  lab/.style={font=\scriptsize\bfseries, text=black!60, anchor=north west},
+  arr/.style={-{Stealth[length=1.7mm]}, black!70},
+  dar/.style={{Stealth[length=1.7mm]}-{Stealth[length=1.7mm]}, black!70}]
+% input
+\node[box, text width=19mm] (file) at (0,0) {Transaction file\\ (SPMF format)};
+\node[box, text width=19mm, below=4mm of file] (parse) {Parser + TWU filter\\ (pass 1)};
+\draw[arr] (file)--(parse);
+% engines
+\node[eng] (e1) at (4.0,0.55) {Utility-list engine\\ (11 algorithms)};
+\node[eng, below=1.5mm of e1] (e2) {Projection engine (2)};
+\node[eng, below=1.5mm of e2] (e3) {Tree engine (6)};
+\node[eng, below=1.5mm of e3] (e4) {Two-phase engine (1)};
+\node[eng, below=1.5mm of e4] (e5) {Heuristic engine (3)};
+\begin{scope}[on background layer]\node[lay, fit=(e1)(e5), inner sep=5pt] (englay) {};\end{scope}
+
+\draw[arr] (parse.east) -- ++(4mm,0) |- (e3.west);
+\node[font=\scriptsize, text=black!60, above=0.5mm of englay] {Engines: search + state};
+% work-stealing and writer
+\node[box, text width=21mm, fill=black!4, right=12mm of e2] (pool) {Work-stealing\\ thread pool};
+\node[box, text width=21mm, fill=black!4, below=4mm of pool] (writer) {Writer thread\\ (bounded channel)};
+\node[box, text width=15mm, right=6mm of writer] (out) {HUIs\\ (output file)};
+\draw[arr] (englay.east |- pool) -- (pool);
+\draw[arr] (pool)--(writer); \draw[arr] (writer)--(out);
+% state manager
+\node[box, fill=orange!14, text width=30mm, minimum height=10mm] (ledger) at (4.9,-5.2) {\textbf{Memory ledger}\\ one account for all growing state\\ limit $= B - $ margin};
+\node[box, fill=yellow!14, text width=23mm, left=4mm of ledger] (policy) {\textbf{Move policy}\\ spill / recompute / partition / relax\\ (measured costs)};
+\node[box, fill=black!4, text width=20mm, right=4mm of ledger] (adm) {\textbf{Admission}\\ resident core $\to$\\ run, fewer threads, or refuse};
+\node[box, fill=black!4, text width=20mm, right=4mm of adm] (rssc) {\textbf{RSS controller}\\ trim heap; lower limit\\ above 92\% of $B$};
+\begin{scope}[on background layer]\node[lay, fit=(policy)(rssc), inner sep=5pt] (smlay) {};\end{scope}
+\node[font=\scriptsize, text=black!60, anchor=south west] at (smlay.north west) {State manager};
+\draw[arr] ([xshift=-6mm]englay.south) -- node[left, font=\scriptsize, align=right]{reserve($n$)} ([xshift=-6mm]smlay.north -| englay.south);
+\draw[arr] ([xshift=6mm]smlay.north -| englay.south) -- node[right, font=\scriptsize, align=left]{granted, or\\ apply a move} ([xshift=6mm]englay.south);
+\draw[arr] (policy)--(ledger); \draw[arr] (adm)--(ledger); \draw[arr] (rssc)--(adm.east);
+\draw[arr] (writer.south) |- node[pos=0.25, right, font=\scriptsize]{queue reserved} (smlay.north east);
+% storage
+\node[box, fill=blue!7, text width=27mm] (bp) at (3.0,-7.6) {\textbf{Buffer pool}\\ cached spilled pages;\\ evicts first under pressure};
+\node[box, fill=blue!7, text width=27mm, right=4mm of bp] (arena) {\textbf{Spill arena}\\ small lists packed\\ into shared pages};
+\node[box, fill=black!4, text width=27mm, right=4mm of arena] (store) {\textbf{Page store}\\ write-back started at once,\\ waited for every 16\,MB};
+\begin{scope}[on background layer]\node[lay, fit=(bp)(store), inner sep=5pt] (stlay) {};\end{scope}
+\node[font=\scriptsize, text=black!60, anchor=south west] at (stlay.north west) {Storage};
+\draw[dar] (ledger.south) -- node[right, font=\scriptsize]{pool shares the ledger} (bp.north -| ledger.south);
+\draw[arr] (bp)--(arena); \draw[arr] (arena)--(store);
+% OS
+\node[box, fill=white, text width=24mm, right=6mm of store, dashed] (os) {Operating system\\ RSS (\texttt{/proc}), cgroup limit, disk};
+\draw[arr] (store)--(os);
+\draw[arr, dashed] (os.north) |- node[pos=0.3, right, font=\scriptsize]{VmRSS} (rssc.east);
+\end{tikzpicture}}
+\caption{Air-HUIM's architecture. Engines run the search and hold its state, but every byte of state
+that grows with the data is reserved from the state manager first; a refused reservation makes the
+engine apply one of the four moves. The buffer pool shares the same ledger, admission control sizes
+the resident core before mining, and the RSS controller corrects the ledger with the memory the
+process really uses.}
+\label{fig:arch}
+\end{figure*}
 
 \textbf{The budget.} The user passes one number $B$ (e.g.\ \texttt{-b 64} for 64\,MB). The goal
 is that the process RSS stays within $B$, that the run uses $B$ (data stays in RAM while it fits),
@@ -210,43 +387,9 @@ to one writer thread over a bounded channel whose capacity is reserved from the 
 disk applies backpressure instead of growing memory.
 
 % ---------------------------------------------------------------------------------------------
-\section{Per-Algorithm Memory Model}\label{sec:model}
+\section{Applying the Moves to Each Engine}\label{sec:model}
 
-Table~\ref{tab:model} summarises, for each engine family, what must stay resident, what is spilled
-or recomputed, and why exactness holds. The minimum budget is the resident set plus the margin.
-
-\begin{table*}[t]
-\centering
-\caption{Memory model of the five engine families. ``Resident'' is what admission control requires; everything else is charged to the ledger and spilled, recomputed or partitioned when the budget is reached.}
-\label{tab:model}
-\small
-\begin{tabular}{@{}p{3.1cm}p{4.0cm}p{4.6cm}p{4.6cm}@{}}
-\toprule
-Engine (algorithms) & Resident (cannot be spilled) & Spilled, recomputed or partitioned & Why the output stays exact \\
-\midrule
-Utility lists (HUI-Miner, FHM, FHM+, HUP-Miner, mHUIMiner, TKO, REPT, HAUI-Miner, HUIM-MMU, IncFHM, SHUIM)
-& per-item list headers; one streaming join per worker (about four chunks); output queue
-& list bodies in chunks (spilled to packed pages, or dropped and recomputed from their parents when that is cheaper); 1-itemset lists built by external sort; pair-utility matrix (EUCS) built in partitions
-& joins stream chunk by chunk and give the same lists; a dropped list is rebuilt exactly from its parents; EUCS is disabled rather than truncated (a partial matrix would prune valid itemsets) \\
-Projection (EFIM, EFIM-Closed)
-& item renaming maps, sub-tree and local utility arrays; one projection per worker (two for EFIM-Closed)
-& database and projections as pool pages; first-level tasks in budget-sized batches
-& projections and transaction merging are computed from the same data, only stored elsewhere \\
-Trees (IHUP, UP-Growth, UP-Growth+, HUP-Tree, HUI-Trie, TKU)
-& TWU of all items; two node pages; candidate and database spool buffers
-& a tree that does not fit is not built: partition projection~\cite{fpgrowth2000} builds one small tree per item; candidates spooled and verified in bounded rounds
-& a partition tree has the same node utilities for its item as the global tree (bounds at least as tight); phase~2 computes exact utilities \\
-Two-phase (Two-Phase)
-& per-item list headers; one join per worker
-& candidates always on disk, verified in budget-sized batches
-& verification computes each candidate's exact utility \\
-Heuristics (HUIM-GA, HUIM-BPSO, MHUI-ACO)
-& per-item index; one chunk per selected item
-& set of HUIs already output becomes a Bloom filter of the same size when it no longer fits
-& approximate by design; a false positive can only skip a new HUI, never output a wrong one \\
-\bottomrule
-\end{tabular}
-\end{table*}
+This section explains the non-obvious entries of Table~\ref{tab:matrix}.
 
 \textbf{Utility-list engine.} A list body longer than one chunk (4,096 entries, smaller under tiny
 budgets) is a sequence of chunks; a join reads the prefix list and the two extension lists one
