@@ -79,9 +79,9 @@ for ds, meta in cfg["datasets"].items():
                  key=lambda x: x[1].get("budget_mb") or 0)
     tko_id = tko[-1][0] if tko else None
 
-    R = load_output(ref_id) if ref_id else None
+    loaded = {}  # ref key -> output; each run is compared with its own reference (hui/closed/avg)
     T = load_output(tko_id) if tko_id else None
-    cases = []  # (run_id, job, output, compared-with, kind)
+    cases = []  # (run_id, job, output, compared-with, kind, min_util)
     for d, j, r in ok:
         if j["impl"] != "spmf":
             continue
@@ -90,13 +90,18 @@ for ds, meta in cfg["datasets"].items():
             continue
         if j.get("k"):
             if T is not None:
-                cases.append((d, j, S, T, "topk"))
-        elif R is not None:
-            cases.append((d, j, S, R, "hui"))
+                cases.append((d, j, S, T, "topk", None))
+            continue
+        key = j.get("ref_key") or f"{ds}|{mu}|hui"
+        rid = refs[key]["id"] if key in refs else (ref_id if key.endswith("|hui") else None)
+        if rid and key not in loaded:
+            loaded[key] = load_output(rid)
+        if rid and loaded[key] is not None:
+            cases.append((d, j, S, loaded[key], key.rsplit("|", 1)[-1], int(key.split("|")[1])))
     if not cases:
         continue
     disputed = set()
-    for d, j, S, base, kind in cases:
+    for d, j, S, base, kind, _ in cases:
         if kind == "topk":
             disputed |= set(S) | set(base)
         else:
@@ -106,8 +111,12 @@ for ds, meta in cfg["datasets"].items():
     print(f"[{ds}] {len(disputed)} disputed itemsets, scanning {meta['path']} ...", file=sys.stderr, flush=True)
     truth = exact_utilities(meta["path"], sorted(disputed, key=sorted))
     rows = []
-    for d, j, S, base, kind in cases:
-        if kind == "hui":
+    for d, j, S, base, kind, cmu in cases:
+        if kind == "avg":  # average utility, printed with 2 decimals
+            tv = lambda x: round(truth[x] / len(x), 2)
+        else:
+            tv = lambda x: truth[x]
+        if kind != "topk":
             miss = [x for x in base if x not in S]
             extra = [x for x in S if x not in base]
             wrong_u = [x for x in S if x in base and S[x] != base[x]]
@@ -115,12 +124,12 @@ for ds, meta in cfg["datasets"].items():
                 "run": d, "algo": j["algo"], "budget_mb": j.get("budget_mb"), "kind": kind,
                 "spmf_count": len(S), "ref_count": len(base),
                 "missed_by_spmf": len(miss),
-                "missed_are_true_huis": sum(truth[x] >= mu for x in miss),
-                "spmf_extra": len(extra), "spmf_extra_true_huis": sum(truth[x] >= mu for x in extra),
+                "missed_are_true_huis": sum(tv(x) >= cmu for x in miss),
+                "spmf_extra": len(extra), "spmf_extra_true_huis": sum(tv(x) >= cmu for x in extra),
                 "utility_differs": len(wrong_u),
-                "spmf_utility_correct": sum(truth[x] == S[x] for x in wrong_u),
-                "ref_utility_correct": sum(truth[x] == base[x] for x in wrong_u),
-                "ref_all_exact": all(truth[x] == u for x, u in base.items() if x in truth),
+                "spmf_utility_correct": sum(tv(x) == S[x] for x in wrong_u),
+                "ref_utility_correct": sum(tv(x) == base[x] for x in wrong_u),
+                "ref_all_exact": all(tv(x) == u for x, u in base.items() if x in truth),
             })
         else:
             kth_ours = min(base.values())

@@ -1,7 +1,7 @@
 # Correctness problems found in SPMF during the comparison
 
 SPMF is the reference implementation for most HUIM algorithms. Comparing it with Air-HUIM
-on the same data and thresholds turned up two cases where SPMF's output is wrong. Every
+on the same data and thresholds turned up three cases where SPMF's output is wrong. Every
 disagreement below was checked by a brute-force scan of the dataset.
 
 ## 1. FHM and FHM+: item comparator overflows on large datasets
@@ -39,3 +39,25 @@ contain the same item twice. All 300 sampled disagreements were checked by brute
 search is right and the item labels written out are corrupted, which points to a bug in how
 the output prefix is built. Its runs are compared on time and memory only. See also
 `Implemented.md`.
+
+The Pi run (r6, 2026-10-31) confirms this on 10 of the 12 datasets where mHUIMiner finished:
+the printed count always equals the true count, but the itemsets are wrong. Only bms (7 HUIs)
+and chainstore (81) come out right; even kosarak's 66 include 33 wrong ones. Some corrupted
+lines become identical, so the distinct count is lower:
+fruithut prints 114,408 lines (correct) that collapse to 111,018 distinct, which is where the
+earlier "111,018 vs 114,408" came from. A full scan checked every disputed itemset
+(`bench/brute_verify.py`): none of the itemsets mHUIMiner adds is a true HUI, and Air-HUIM's
+output was exact in every comparison.
+
+## 3. TKU: returns fewer than k itemsets on chicago
+
+With k = 100 on Chicago Crimes, SPMF TKU (v2.26) reports "Number of top-k high utility
+patterns : 4" and writes 4 itemsets. Their utilities are exact, but 96 itemsets are missing:
+Air-HUIM TKO and TKU, and SPMF's own TKO, all return 100 itemsets on the same file, with the
+100th at utility 114,357. The result is the same with a 1 GB and a 4 GB heap and on the Pi
+and the laptop, so it is not caused by memory. On the other datasets where it finished
+(foodmart, fruithut, retail, mushroom), SPMF TKU returns the right 100. The cause has not
+been traced yet.
+
+**Reproduce.** `java -Xmx1024m -jar spmf.jar run TKU Chicago_Crimes_2001_to_2017_utility.txt
+out.txt 100`, then the same with `TKO` for comparison.
