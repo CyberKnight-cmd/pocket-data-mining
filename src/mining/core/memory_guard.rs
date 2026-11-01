@@ -289,17 +289,47 @@ pub fn release_free_memory() {
     }
 }
 
-/// Background heap trimmer. With several threads sharing one malloc arena, long-lived blocks
-/// (cached pages, in-RAM lists) interleave with short-lived join buffers; the freed holes stay
-/// resident because glibc only returns the top of the heap on `free`. Every 250 ms, if the
-/// process RSS exceeds the ledger by more than max(8 MB, budget / 10), `malloc_trim(0)`
-/// returns free pages from anywhere in the heap. Stops when `done` is set.
-pub fn spawn_heap_trimmer(guard: Arc<MemoryGuard>, done: Arc<std::sync::atomic::AtomicBool>) {
+/// Background heap trimmer and RSS controller.
+///
+/// Trimming: with several threads sharing one malloc arena, long-lived blocks (cached pages,
+/// in-RAM lists) interleave with short-lived join buffers; the freed holes stay resident
+/// because glibc only returns the top of the heap on `free`. Every 250 ms, if the process RSS
+/// exceeds the ledger by more than max(8 MB, budget / 10), `malloc_trim(0)` returns free pages
+/// from anywhere in the heap.
+///
+/// Control (`rss_limit` > 0, the user's budget): the ledger counts what the miner allocates,
+/// not what the allocator keeps resident, and on long runs with small budgets that gap can be a
+/// third of the budget. When the RSS (sampled before trimming) is above 92% of `rss_limit`, the
+/// ledger budget is lowered by the excess (the pool then caches less and lists spill sooner);
+/// when RSS is comfortably below, it is raised back, never above its starting value or a value
+/// set by someone else (the OS safety net). It never goes below half its starting value.
+/// Stops when `done` is set.
+pub fn spawn_heap_trimmer(guard: Arc<MemoryGuard>, done: Arc<std::sync::atomic::AtomicBool>, rss_limit: usize) {
     std::thread::spawn(move || {
+        let mut ceiling = guard.budget();
+        let floor = ceiling / 2;
+        let mut last_set = ceiling;
         while !done.load(std::sync::atomic::Ordering::Relaxed) {
             let slack = (8usize << 20).max(guard.budget() / 10);
-            if current_rss_bytes() > guard.used() + slack {
+            // Steer on the RSS before trimming: the heap regrows to about that level between
+            // ticks, so it is what the peak RSS sees, not the brief low right after a trim.
+            let rss = current_rss_bytes();
+            if rss > guard.used() + slack {
                 release_free_memory();
+            }
+            if rss_limit > 0 {
+                let budget = guard.budget();
+                if budget != last_set { ceiling = ceiling.min(budget); } // set elsewhere
+                let target = rss_limit / 100 * 92;
+                let next = if rss > target {
+                    budget.saturating_sub(rss - target).max(floor)
+                } else if rss + rss_limit / 20 < target {
+                    (budget + (target - rss) / 2).min(ceiling)
+                } else {
+                    budget
+                };
+                if next != budget { guard.set_budget(next); }
+                last_set = next;
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
         }

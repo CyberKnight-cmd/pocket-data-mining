@@ -474,7 +474,7 @@ fn run_mining(
         let _ = run_tui(tui_progress, tui_pool, tui_guard, tui_done);
     });
 
-    pocket_data_mining::mining::core::memory_guard::spawn_heap_trimmer(Arc::clone(&ctx.guard), Arc::clone(&done));
+    pocket_data_mining::mining::core::memory_guard::spawn_heap_trimmer(Arc::clone(&ctx.guard), Arc::clone(&done), budget_bytes);
 
     // AIR_HUIM_MEMLOG=1: print ledger vs. real RSS to stderr, every AIR_HUIM_MEMLOG_MS
     // milliseconds (default 1000).

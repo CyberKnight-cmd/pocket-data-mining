@@ -37,6 +37,14 @@ const ARENA_PAGE_BYTES: usize = 256 * 1024;
 
 /// Entries per chunk of a chunked body (80 KB), scaled down under tiny budgets so the
 /// per-join working set (a few chunks) stays a small fraction of the budget.
+/// Exact-size copy of a partly filled buffer. Shrinking a chunk buffer in place would leave the
+/// small list pinned inside the chunk's old footprint, and with several threads sharing the
+/// heap those survivors keep whole pages resident (RSS far above the ledger at small budgets).
+/// A fresh small allocation packs with other small blocks, and the chunk is freed whole.
+fn exact(entries: Vec<ULEntry>) -> Vec<ULEntry> {
+    if entries.capacity() == entries.len() { entries } else { entries.as_slice().to_vec() }
+}
+
 pub fn chunk_entries(guard: &MemoryGuard) -> usize {
     (guard.budget() / 256 / 20).clamp(64, 4096)
 }
@@ -168,8 +176,8 @@ impl<'a> BodyAlloc<'a> {
     }
 
     /// Turn finished entries into a body: in RAM if the budget allows, else spilled.
-    pub fn make_body(&self, mut entries: Vec<ULEntry>) -> io::Result<UlBody> {
-        entries.shrink_to_fit();
+    pub fn make_body(&self, entries: Vec<ULEntry>) -> io::Result<UlBody> {
+        let entries = exact(entries);
         if entries.is_empty() {
             return Ok(UlBody::InMemory(entries, None));
         }
@@ -533,11 +541,11 @@ impl<'a> BodyWriter<'a> {
 
     fn flush_part(&mut self) -> io::Result<()> {
         if self.buf.is_empty() || self.dropping { return Ok(()); }
-        let mut entries = std::mem::take(&mut self.buf);
+        let entries = std::mem::take(&mut self.buf);
         let part = if self.prefer_disk {
             self.alloc.spill_body(&entries)?
         } else {
-            entries.shrink_to_fit();
+            let entries = exact(entries);
             match self.alloc.guard.reserve(vec_bytes::<ULEntry>(entries.capacity())) {
                 Some(r) => UlBody::InMemory(entries, Some(r)),
                 None => {
