@@ -10,7 +10,7 @@ Experiments (priority order):
   ablation  original Air-HUIM code (before budget work) vs current, same budgets
   hard      hard limit: watchdog kills any process whose RSS exceeds the budget
   threads   Air-HUIM thread scaling
-  spmf-free SPMF with no heap cap (its natural footprint)
+  spmf-free SPMF with the heap allowed 85% of RAM (its natural footprint)
 `code_version` must be bumped for an algorithm whenever its code changes; finished
 results of other algorithms are then kept (see collect.py job_id).
 """
@@ -45,7 +45,10 @@ PENDING = set()
 # r3: cost-based rematerialisation (AIR_HUIM_REMAT=auto by default) in the utility-list engine.
 # r4: admission control in every engine, budget-scaled buffers, background heap trimmer.
 # r5: tree miners use partition projection when the tree does not fit; byte-level SPMF parser.
-RUNTIME = "r5"
+# r6: RSS feedback control of the ledger budget; exact-size list copies (no in-place shrink);
+#     utility-list engine: prefix passed down (no per-extension itemset copies), dense EUCS
+#     matrix, Top-K RUC seed + EPB order; tree miners verify candidates in bounded rounds.
+RUNTIME = "r6"
 HEURISTIC = {"huim-ga", "huim-bpso", "mhui-aco"}
 
 SPMF = {  # air algo -> (SPMF name, args(min_util, k))
@@ -245,8 +248,10 @@ def main():
     for ds in order:
         for algo in ["fhm", "efim", "hui-miner", "up-growth"]:
             sname, args = SPMF[algo]
+            # "spmf-heap85": the JVM may use 85% of RAM (collect.py); the earlier runs had the
+            # JVM's default 1/4-of-RAM heap cap, so they get new job ids and are kept apart.
             J(experiment="spmf-free", impl="spmf", algo=algo, dataset=ds, budget_mb=None, cap_s=600,
-              priority=60000, spmf_name=sname, spmf_args=args(datasets[ds]["min_util"], K), code_version="spmf")
+              priority=60000, spmf_name=sname, spmf_args=args(datasets[ds]["min_util"], K), code_version="spmf-heap85")
 
     # Headline: a server-scale dataset on the Pi. dunnhumby LGSR, 47.1M baskets, 3.2 GB in SPMF
     # format (bench/convert_lgsr.py), threshold 0.2% of total utility (calibration_large.json),

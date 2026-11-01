@@ -177,7 +177,9 @@ def build_cmd(job, d, cfg):
         cmd += ["--top-k", str(job["k"])] if job.get("k") else ["-m", str(job["min_util"])]
         cmd += [str(x) for x in job.get("extra", [])]
     elif impl == "spmf":
-        heap = [f"-Xmx{job['budget_mb']}m"] if job.get("budget_mb") else []
+        # No budget ("SPMF unconstrained"): without -Xmx the JVM caps the heap at 1/4 of RAM
+        # (~950 MB on the Pi), which is a limit, not "free". Let it use most of the machine.
+        heap = [f"-Xmx{job['budget_mb']}m"] if job.get("budget_mb") else ["-XX:MaxRAMPercentage=85"]
         cmd = [cfg["java"]] + heap + job.get("jvm_args", []) + ["-jar", cfg["spmf_jar"], "run", job["spmf_name"], ds, out] \
               + [str(x) for x in job["spmf_args"]]
     else:
