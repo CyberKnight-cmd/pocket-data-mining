@@ -1,0 +1,206 @@
+{
+ "lgsr": {
+  "path": "/home/cyberknight/.cache/air-huim-bench/large/lgsr/lgsr.txt",
+  "total_utility": 58972716750,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 1179454335,
+    "secs": 73.45,
+    "huis": 0
+   },
+   {
+    "pct": 1,
+    "min_util": 589727167,
+    "secs": 81.47,
+    "huis": 2
+   },
+   {
+    "pct": 0.5,
+    "min_util": 294863583,
+    "secs": 102.53,
+    "huis": 5
+   },
+   {
+    "pct": 0.2,
+    "min_util": 117945433,
+    "secs": 181.67,
+    "huis": 52
+   },
+   {
+    "pct": 0.1,
+    "min_util": 58972716,
+    "secs": 286.62,
+    "huis": 190
+   },
+   {
+    "pct": 0.05,
+    "min_util": 29486358,
+    "secs": 408.84,
+    "huis": 628
+   }
+  ],
+  "chosen": 117945433,
+  "chosen_pct": 0.2,
+  "rule": "LGSR variants: the same 0.2% (like-for-like size scaling; leaves SPMF time to finish within the cap); H&M: lowest calibrated"
+ },
+ "lgsr-custweek": {
+  "path": "/home/cyberknight/.cache/air-huim-bench/large/lgsr/lgsr_custweek.txt",
+  "total_utility": 47427767880,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 948555357,
+    "secs": 53.95,
+    "huis": 0
+   },
+   {
+    "pct": 1,
+    "min_util": 474277678,
+    "secs": 67.96,
+    "huis": 2
+   },
+   {
+    "pct": 0.5,
+    "min_util": 237138839,
+    "secs": 100.74,
+    "huis": 7
+   },
+   {
+    "pct": 0.2,
+    "min_util": 94855535,
+    "secs": 203.04,
+    "huis": 66
+   },
+   {
+    "pct": 0.1,
+    "min_util": 47427767,
+    "secs": 346.2,
+    "huis": 262
+   }
+  ],
+  "chosen": 94855535,
+  "chosen_pct": 0.2,
+  "rule": "LGSR variants: the same 0.2% (like-for-like size scaling; leaves SPMF time to finish within the cap); H&M: lowest calibrated"
+ },
+ "lgsr-1yr": {
+  "path": "/home/cyberknight/.cache/air-huim-bench/large/lgsr/lgsr_1yr.txt",
+  "total_utility": 25892846537,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 517856930,
+    "secs": 32.58,
+    "huis": 0
+   },
+   {
+    "pct": 1,
+    "min_util": 258928465,
+    "secs": 36.84,
+    "huis": 2
+   },
+   {
+    "pct": 0.5,
+    "min_util": 129464232,
+    "secs": 45.23,
+    "huis": 5
+   },
+   {
+    "pct": 0.2,
+    "min_util": 51785693,
+    "secs": 79.89,
+    "huis": 52
+   },
+   {
+    "pct": 0.1,
+    "min_util": 25892846,
+    "secs": 132.92,
+    "huis": 195
+   },
+   {
+    "pct": 0.05,
+    "min_util": 12946423,
+    "secs": 174.07,
+    "huis": 664
+   },
+   {
+    "pct": 0.02,
+    "min_util": 5178569,
+    "secs": 227.38,
+    "huis": 2891
+   },
+   {
+    "pct": 0.01,
+    "min_util": 2589284,
+    "secs": 309.63,
+    "huis": 8639
+   }
+  ],
+  "chosen": 51785693,
+  "chosen_pct": 0.2,
+  "rule": "LGSR variants: the same 0.2% (like-for-like size scaling; leaves SPMF time to finish within the cap); H&M: lowest calibrated"
+ },
+ "hm": {
+  "path": "/home/cyberknight/.cache/air-huim-bench/large/hm.txt",
+  "total_utility": 884646511241,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 17692930224,
+    "secs": 8.01,
+    "huis": 0
+   },
+   {
+    "pct": 1,
+    "min_util": 8846465112,
+    "secs": 7.71,
+    "huis": 0
+   },
+   {
+    "pct": 0.5,
+    "min_util": 4423232556,
+    "secs": 8.24,
+    "huis": 0
+   },
+   {
+    "pct": 0.2,
+    "min_util": 1769293022,
+    "secs": 8.47,
+    "huis": 0
+   },
+   {
+    "pct": 0.1,
+    "min_util": 884646511,
+    "secs": 8.85,
+    "huis": 3
+   },
+   {
+    "pct": 0.05,
+    "min_util": 442323255,
+    "secs": 9.63,
+    "huis": 18
+   },
+   {
+    "pct": 0.02,
+    "min_util": 176929302,
+    "secs": 13.47,
+    "huis": 220
+   },
+   {
+    "pct": 0.01,
+    "min_util": 88464651,
+    "secs": 19.13,
+    "huis": 1134
+   },
+   {
+    "pct": 0.005,
+    "min_util": 44232325,
+    "secs": 23.98,
+    "huis": 4545
+   }
+  ],
+  "chosen": 44232325,
+  "chosen_pct": 0.005,
+  "rule": "LGSR variants: the same 0.2% (like-for-like size scaling; leaves SPMF time to finish within the cap); H&M: lowest calibrated"
+ }
+}

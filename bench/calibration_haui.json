@@ -1,0 +1,576 @@
+{
+ "BMS_utility_spmf.txt": {
+  "total_utility": 108457438,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 2169148,
+    "secs": 0.55,
+    "itemsets": 7
+   },
+   {
+    "pct": 1,
+    "min_util": 1084574,
+    "secs": 0.07,
+    "itemsets": 16
+   },
+   {
+    "pct": 0.5,
+    "min_util": 542287,
+    "secs": 0.07,
+    "itemsets": 56
+   },
+   {
+    "pct": 0.2,
+    "min_util": 216914,
+    "secs": 0.11,
+    "itemsets": 223
+   },
+   {
+    "pct": 0.1,
+    "min_util": 108457,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ },
+ "Chicago_Crimes_2001_to_2017_utility.txt": {
+  "total_utility": 7941285,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 158825,
+    "secs": 1.68,
+    "itemsets": 22
+   },
+   {
+    "pct": 1,
+    "min_util": 79412,
+    "secs": 1.76,
+    "itemsets": 48
+   },
+   {
+    "pct": 0.5,
+    "min_util": 39706,
+    "secs": 1.8,
+    "itemsets": 103
+   },
+   {
+    "pct": 0.2,
+    "min_util": 15882,
+    "secs": 1.93,
+    "itemsets": 249
+   },
+   {
+    "pct": 0.1,
+    "min_util": 7941,
+    "secs": 1.89,
+    "itemsets": 494
+   },
+   {
+    "pct": 0.05,
+    "min_util": 3970,
+    "secs": 2.0,
+    "itemsets": 958
+   },
+   {
+    "pct": 0.02,
+    "min_util": 1588,
+    "secs": 1.91,
+    "itemsets": 2219
+   },
+   {
+    "pct": 0.01,
+    "min_util": 794,
+    "secs": 1.97,
+    "itemsets": 4070
+   },
+   {
+    "pct": 0.005,
+    "min_util": 397,
+    "secs": 1.97,
+    "itemsets": 6937
+   },
+   {
+    "pct": 0.002,
+    "min_util": 158,
+    "secs": 2.08,
+    "itemsets": 14467
+   },
+   {
+    "pct": 0.001,
+    "min_util": 79,
+    "secs": 1.99,
+    "itemsets": 23088
+   },
+   {
+    "pct": 0.0005,
+    "min_util": 39,
+    "secs": 1.94,
+    "itemsets": 36671
+   }
+  ]
+ },
+ "accidents_utility_spmf.txt": {
+  "total_utility": 196141636,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 3922832,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ },
+ "chainstore.txt": {
+  "total_utility": 2609973588,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 52199471,
+    "secs": 1.87,
+    "itemsets": 1
+   },
+   {
+    "pct": 1,
+    "min_util": 26099735,
+    "secs": 2.08,
+    "itemsets": 2
+   },
+   {
+    "pct": 0.5,
+    "min_util": 13049867,
+    "secs": 2.33,
+    "itemsets": 4
+   },
+   {
+    "pct": 0.2,
+    "min_util": 5219947,
+    "secs": 2.76,
+    "itemsets": 24
+   },
+   {
+    "pct": 0.1,
+    "min_util": 2609973,
+    "secs": 3.71,
+    "itemsets": 71
+   },
+   {
+    "pct": 0.05,
+    "min_util": 1304986,
+    "secs": 4.78,
+    "itemsets": 203
+   },
+   {
+    "pct": 0.02,
+    "min_util": 521994,
+    "secs": 12.24,
+    "itemsets": 755
+   }
+  ]
+ },
+ "chess_utility_spmf.txt": {
+  "total_utility": 2156659,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 43133,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ },
+ "connect_utility_spmf.txt": {
+  "total_utility": 50999845,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 1019996,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ },
+ "ecommerce_utility_no_timestamps.txt": {
+  "total_utility": 497013754,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 9940275,
+    "secs": 0.05,
+    "itemsets": 0
+   },
+   {
+    "pct": 1,
+    "min_util": 4970137,
+    "secs": 0.05,
+    "itemsets": 3
+   },
+   {
+    "pct": 0.5,
+    "min_util": 2485068,
+    "secs": 0.07,
+    "itemsets": 12
+   },
+   {
+    "pct": 0.2,
+    "min_util": 994027,
+    "secs": 0.1,
+    "itemsets": 102
+   },
+   {
+    "pct": 0.1,
+    "min_util": 497013,
+    "secs": 0.18,
+    "itemsets": 332
+   },
+   {
+    "pct": 0.05,
+    "min_util": 248506,
+    "secs": 0.3,
+    "itemsets": 1182
+   },
+   {
+    "pct": 0.02,
+    "min_util": 99402,
+    "secs": 12.45,
+    "itemsets": 28674
+   }
+  ]
+ },
+ "foodmart.txt": {
+  "total_utility": 12011023,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 240220,
+    "secs": 0.01,
+    "itemsets": 0
+   },
+   {
+    "pct": 1,
+    "min_util": 120110,
+    "secs": 0.01,
+    "itemsets": 0
+   },
+   {
+    "pct": 0.5,
+    "min_util": 60055,
+    "secs": 0.01,
+    "itemsets": 0
+   },
+   {
+    "pct": 0.2,
+    "min_util": 24022,
+    "secs": 0.01,
+    "itemsets": 3
+   },
+   {
+    "pct": 0.1,
+    "min_util": 12011,
+    "secs": 0.04,
+    "itemsets": 257
+   },
+   {
+    "pct": 0.05,
+    "min_util": 6005,
+    "secs": 0.11,
+    "itemsets": 915
+   },
+   {
+    "pct": 0.02,
+    "min_util": 2402,
+    "secs": 0.1,
+    "itemsets": 1502
+   },
+   {
+    "pct": 0.01,
+    "min_util": 1201,
+    "secs": 0.15,
+    "itemsets": 4973
+   },
+   {
+    "pct": 0.005,
+    "min_util": 600,
+    "secs": 0.27,
+    "itemsets": 140816
+   }
+  ]
+ },
+ "fruithut_utility.txt": {
+  "total_utility": 261871526,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 5237430,
+    "secs": 0.21,
+    "itemsets": 8
+   },
+   {
+    "pct": 1,
+    "min_util": 2618715,
+    "secs": 0.24,
+    "itemsets": 21
+   },
+   {
+    "pct": 0.5,
+    "min_util": 1309357,
+    "secs": 0.27,
+    "itemsets": 55
+   },
+   {
+    "pct": 0.2,
+    "min_util": 523743,
+    "secs": 0.3,
+    "itemsets": 168
+   },
+   {
+    "pct": 0.1,
+    "min_util": 261871,
+    "secs": 0.37,
+    "itemsets": 429
+   },
+   {
+    "pct": 0.05,
+    "min_util": 130935,
+    "secs": 0.4,
+    "itemsets": 1159
+   },
+   {
+    "pct": 0.02,
+    "min_util": 52374,
+    "secs": 0.55,
+    "itemsets": 4326
+   },
+   {
+    "pct": 0.01,
+    "min_util": 26187,
+    "secs": 0.67,
+    "itemsets": 11859
+   },
+   {
+    "pct": 0.005,
+    "min_util": 13093,
+    "secs": 0.91,
+    "itemsets": 33516
+   },
+   {
+    "pct": 0.002,
+    "min_util": 5237,
+    "secs": 2.3,
+    "itemsets": 150039
+   }
+  ]
+ },
+ "kosarak_utility_spmf.txt": {
+  "total_utility": 140925416,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 2818508,
+    "secs": 2.59,
+    "itemsets": 7
+   },
+   {
+    "pct": 1,
+    "min_util": 1409254,
+    "secs": 3.12,
+    "itemsets": 17
+   },
+   {
+    "pct": 0.5,
+    "min_util": 704627,
+    "secs": 4.15,
+    "itemsets": 45
+   },
+   {
+    "pct": 0.2,
+    "min_util": 281850,
+    "secs": 4.45,
+    "itemsets": 179
+   },
+   {
+    "pct": 0.1,
+    "min_util": 140925,
+    "secs": 5.96,
+    "itemsets": 773
+   },
+   {
+    "pct": 0.05,
+    "min_util": 70462,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ },
+ "liquor_11.txt": {
+  "total_utility": 2239493744,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 44789874,
+    "secs": 0.12,
+    "itemsets": 2
+   },
+   {
+    "pct": 1,
+    "min_util": 22394937,
+    "secs": 0.13,
+    "itemsets": 16
+   },
+   {
+    "pct": 0.5,
+    "min_util": 11197468,
+    "secs": 0.14,
+    "itemsets": 57
+   },
+   {
+    "pct": 0.2,
+    "min_util": 4478987,
+    "secs": 0.17,
+    "itemsets": 224
+   },
+   {
+    "pct": 0.1,
+    "min_util": 2239493,
+    "secs": 0.21,
+    "itemsets": 631
+   },
+   {
+    "pct": 0.05,
+    "min_util": 1119746,
+    "secs": 0.27,
+    "itemsets": 1762
+   },
+   {
+    "pct": 0.02,
+    "min_util": 447898,
+    "secs": 0.42,
+    "itemsets": 7003
+   },
+   {
+    "pct": 0.01,
+    "min_util": 223949,
+    "secs": 0.56,
+    "itemsets": 20716
+   },
+   {
+    "pct": 0.005,
+    "min_util": 111974,
+    "secs": 0.79,
+    "itemsets": 59934
+   },
+   {
+    "pct": 0.002,
+    "min_util": 44789,
+    "secs": 1.6,
+    "itemsets": 222379
+   }
+  ]
+ },
+ "mushroom_utility_spmf.txt": {
+  "total_utility": 3413720,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 68274,
+    "secs": 0.42,
+    "itemsets": 353
+   },
+   {
+    "pct": 1,
+    "min_util": 34137,
+    "secs": 2.39,
+    "itemsets": 30798
+   },
+   {
+    "pct": 0.5,
+    "min_util": 17068,
+    "secs": 14.03,
+    "itemsets": 320616
+   }
+  ]
+ },
+ "pumsb_utility_spmf.txt": {
+  "total_utility": 66445076,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 1328901,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ },
+ "retail_utility_spmf.txt": {
+  "total_utility": 14910915,
+  "trials": [
+   {
+    "pct": 2,
+    "min_util": 298218,
+    "secs": 0.2,
+    "itemsets": 1
+   },
+   {
+    "pct": 1,
+    "min_util": 149109,
+    "secs": 0.22,
+    "itemsets": 6
+   },
+   {
+    "pct": 0.5,
+    "min_util": 74554,
+    "secs": 0.25,
+    "itemsets": 15
+   },
+   {
+    "pct": 0.2,
+    "min_util": 29821,
+    "secs": 0.32,
+    "itemsets": 47
+   },
+   {
+    "pct": 0.1,
+    "min_util": 14910,
+    "secs": 0.44,
+    "itemsets": 162
+   },
+   {
+    "pct": 0.05,
+    "min_util": 7455,
+    "secs": 0.88,
+    "itemsets": 519
+   },
+   {
+    "pct": 0.02,
+    "min_util": 2982,
+    "secs": 2.7,
+    "itemsets": 2271
+   },
+   {
+    "pct": 0.01,
+    "min_util": 1491,
+    "secs": 3.98,
+    "itemsets": 6215
+   },
+   {
+    "pct": 0.005,
+    "min_util": 745,
+    "secs": 5.22,
+    "itemsets": 15928
+   },
+   {
+    "pct": 0.002,
+    "min_util": 298,
+    "secs": 7.64,
+    "itemsets": 59288
+   },
+   {
+    "pct": 0.001,
+    "min_util": 149,
+    "secs": 20,
+    "itemsets": -1
+   }
+  ]
+ }
+}

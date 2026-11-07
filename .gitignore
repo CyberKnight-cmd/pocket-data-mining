@@ -1,4 +1,6 @@
 /target
 chunks/
 results/
+!bench/results/
 output*.txt
+__pycache__/

@@ -24,13 +24,20 @@ pub struct FileChunkStore {
     root: PathBuf,
     counter: AtomicU64,
     compress: bool,
+    /// Bytes written since the last full writeback (see `write_page`).
+    dirty: AtomicU64,
 }
+
+/// Spill writes left dirty in the page cache count toward a cgroup's memory limit, and with
+/// no swap the kernel can OOM-kill the process before it writes them back. Writeback starts
+/// right after each page is written, and every this many bytes the writer waits for it.
+const DIRTY_LIMIT: u64 = 16 << 20;
 
 impl FileChunkStore {
     pub fn new(root: impl AsRef<Path>, compress: bool) -> io::Result<Self> {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(&root)?;
-        Ok(Self { root, counter: AtomicU64::new(1), compress })
+        Ok(Self { root, counter: AtomicU64::new(1), compress, dirty: AtomicU64::new(0) })
     }
 
     fn page_path(&self, id: PageId) -> PathBuf {
@@ -74,6 +81,22 @@ impl ChunkStore for FileChunkStore {
         file.write_all(&header.to_bytes())?;
         file.write_all(&final_payload)?;
         file.flush()?;
+        let bytes = (PAGE_HEADER_SIZE + final_payload.len()) as u64;
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = file.as_raw_fd();
+            // SAFETY: fd is a valid open file for the duration of these calls.
+            unsafe {
+                libc::sync_file_range(fd, 0, 0, libc::SYNC_FILE_RANGE_WRITE);
+                if self.dirty.fetch_add(bytes, Ordering::Relaxed) + bytes >= DIRTY_LIMIT {
+                    self.dirty.store(0, Ordering::Relaxed);
+                    libc::syncfs(fd);
+                }
+            }
+        }
+        #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+        let _ = bytes;
         Ok(())
     }
 

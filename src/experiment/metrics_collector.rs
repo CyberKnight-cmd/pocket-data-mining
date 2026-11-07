@@ -21,15 +21,7 @@ pub struct ExperimentResult {
     pub exact:             bool,
 }
 
-/// Measure current process RSS (Resident Set Size) in bytes using sysinfo.
+/// Peak process RSS (Resident Set Size) in bytes so far (Linux VmHWM; 0 elsewhere).
 pub fn measure_peak_rss() -> usize {
-    use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    if let Ok(pid) = sysinfo::get_current_pid() {
-        if let Some(process) = sys.process(pid) {
-            return process.memory() as usize;
-        }
-    }
-    0
+    crate::mining::core::memory_guard::peak_rss_bytes()
 }

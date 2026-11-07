@@ -18,6 +18,12 @@ impl ResultWriter {
         Ok(Self { writer: BufWriter::new(file), count: 0 })
     }
 
+    /// Open for appending (results of a later round of the same run).
+    pub fn append(path: impl AsRef<Path>) -> io::Result<Self> {
+        let file = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
+        Ok(Self { writer: BufWriter::new(file), count: 0 })
+    }
+
     pub fn write_hui(&mut self, itemset: &[ItemId], utility: Utility) -> io::Result<()> {
         let items_str: Vec<String> = itemset.iter().map(|i| i.to_string()).collect();
         writeln!(self.writer, "{} #UTIL: {}", items_str.join(" "), utility)?;

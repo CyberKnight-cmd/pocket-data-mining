@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Air-HUIM: Exact High-Utility Itemset Mining Under a Hard Memory Budget on Edge Hardware"
+authors:
+  - family-names: Gupta
+    given-names: Arya
+version: 1.0.0
+date-released: 2026-11-07
+repository-code: "https://github.com/CyberKnight-cmd/pocket-data-mining"
+type: software
+license: MIT
+keywords:
+  - high-utility itemset mining
+  - memory-bounded data mining
+  - Rust
+  - Raspberry Pi

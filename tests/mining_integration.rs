@@ -255,7 +255,11 @@ fn hauiminer_exact_tiny_database() {
     let mut ctx = create_ctx(store, out_path.clone(), MIN_UTILITY);
     let mut algo = pocket_data_mining::mining::algorithms::haui_miner::HauiMiner::new();
     let count = algo.run(pocket_data_mining::mining::core::data_source::DataSource::file(db_file.path()), &mut ctx).unwrap();
-    println!("count: {}", count); let huis = read_huis(&out_path); println!("huis: {:?}", huis); assert_eq!(count, 5, "Expected exactly 5 HUIs");
+    // Average utility u(X)/|X| >= 45: {1}=50, {2}=45, {3}=55; {1,3}=30, {2,3}=25 do not qualify.
+    let huis = read_huis(&out_path);
+    assert_eq!(count, 3, "Expected exactly 3 high average-utility itemsets, got {:?}", huis);
+    let set: std::collections::HashSet<_> = huis.into_iter().collect();
+    assert!(set.contains(&(vec![1], 50)) && set.contains(&(vec![2], 45)) && set.contains(&(vec![3], 55)));
 }
 
 

@@ -1,0 +1,294 @@
+{
+ "foodmart": {
+  "chosen": 3000,
+  "trials": [
+   {
+    "min_util": 3000,
+    "status": "ok",
+    "secs": 0.3,
+    "huis": 160003
+   }
+  ]
+ },
+ "chainstore": {
+  "chosen": null,
+  "trials": [
+   {
+    "min_util": 2609973,
+    "status": "ok",
+    "secs": 11.62,
+    "huis": 0
+   }
+  ]
+ },
+ "ecommerce": {
+  "chosen": 994027,
+  "trials": [
+   {
+    "min_util": 994027,
+    "status": "ok",
+    "secs": 0.4,
+    "huis": 27162
+   }
+  ]
+ },
+ "fruithut": {
+  "chosen": 26187,
+  "trials": [
+   {
+    "min_util": 26187,
+    "status": "ok",
+    "secs": 1.8,
+    "huis": 4029
+   }
+  ]
+ },
+ "liquor": {
+  "chosen": null,
+  "trials": [
+   {
+    "min_util": 111974,
+    "status": "too-much-output",
+    "secs": 1.5,
+    "huis": -1
+   }
+  ]
+ },
+ "chicago": {
+  "chosen": null,
+  "trials": [
+   {
+    "min_util": 397,
+    "status": "timeout",
+    "secs": 20.03,
+    "huis": -1
+   }
+  ]
+ },
+ "retail": {
+  "chosen": 1491,
+  "trials": [
+   {
+    "min_util": 1491,
+    "status": "ok",
+    "secs": 1.6,
+    "huis": 4297
+   }
+  ]
+ },
+ "mushroom": {
+  "chosen": 170686,
+  "trials": [
+   {
+    "min_util": 170686,
+    "status": "ok",
+    "secs": 0.3,
+    "huis": 14584
+   }
+  ]
+ },
+ "pumsb": {
+  "chosen": 477573,
+  "trials": [
+   {
+    "min_util": 15282367,
+    "status": "ok",
+    "secs": 2.2,
+    "huis": 0
+   },
+   {
+    "min_util": 7641183,
+    "status": "ok",
+    "secs": 2.2,
+    "huis": 0
+   },
+   {
+    "min_util": 3820591,
+    "status": "ok",
+    "secs": 2.2,
+    "huis": 0
+   },
+   {
+    "min_util": 1910295,
+    "status": "ok",
+    "secs": 2.7,
+    "huis": 0
+   },
+   {
+    "min_util": 955147,
+    "status": "ok",
+    "secs": 3.91,
+    "huis": 0
+   },
+   {
+    "min_util": 477573,
+    "status": "ok",
+    "secs": 5.61,
+    "huis": 0
+   },
+   {
+    "min_util": 238786,
+    "status": "timeout",
+    "secs": 20.03,
+    "huis": -1
+   }
+  ]
+ },
+ "chess": {
+  "chosen": 269582,
+  "trials": [
+   {
+    "min_util": 539164,
+    "status": "ok",
+    "secs": 0.2,
+    "huis": 0
+   },
+   {
+    "min_util": 269582,
+    "status": "ok",
+    "secs": 0.3,
+    "huis": 818
+   },
+   {
+    "min_util": 134791,
+    "status": "too-much-output",
+    "secs": 2.71,
+    "huis": -1
+   }
+  ]
+ },
+ "connect": {
+  "chosen": 509998,
+  "trials": [
+   {
+    "min_util": 16319950,
+    "status": "ok",
+    "secs": 1.9,
+    "huis": 0
+   },
+   {
+    "min_util": 8159975,
+    "status": "ok",
+    "secs": 1.7,
+    "huis": 0
+   },
+   {
+    "min_util": 4079987,
+    "status": "ok",
+    "secs": 1.6,
+    "huis": 0
+   },
+   {
+    "min_util": 2039993,
+    "status": "ok",
+    "secs": 1.6,
+    "huis": 0
+   },
+   {
+    "min_util": 1019996,
+    "status": "ok",
+    "secs": 1.7,
+    "huis": 0
+   },
+   {
+    "min_util": 509998,
+    "status": "ok",
+    "secs": 4.01,
+    "huis": 0
+   },
+   {
+    "min_util": 254999,
+    "status": "too-much-output",
+    "secs": 2.01,
+    "huis": -1
+   }
+  ]
+ },
+ "accidents": {
+  "chosen": 735531,
+  "trials": [
+   {
+    "min_util": 23536996,
+    "status": "ok",
+    "secs": 7.41,
+    "huis": 0
+   },
+   {
+    "min_util": 11768498,
+    "status": "ok",
+    "secs": 7.21,
+    "huis": 0
+   },
+   {
+    "min_util": 5884249,
+    "status": "ok",
+    "secs": 7.71,
+    "huis": 0
+   },
+   {
+    "min_util": 2942124,
+    "status": "ok",
+    "secs": 7.71,
+    "huis": 0
+   },
+   {
+    "min_util": 1471062,
+    "status": "ok",
+    "secs": 6.81,
+    "huis": 0
+   },
+   {
+    "min_util": 735531,
+    "status": "ok",
+    "secs": 6.51,
+    "huis": 0
+   },
+   {
+    "min_util": 367765,
+    "status": "ok",
+    "secs": 10.52,
+    "huis": 0
+   }
+  ]
+ },
+ "kosarak": {
+  "chosen": null,
+  "trials": [
+   {
+    "min_util": 1409254,
+    "status": "ok",
+    "secs": 11.61,
+    "huis": 0
+   }
+  ]
+ },
+ "bms": {
+  "chosen": 569401,
+  "trials": [
+   {
+    "min_util": 2277606,
+    "status": "ok",
+    "secs": 0.5,
+    "huis": 0
+   },
+   {
+    "min_util": 1138803,
+    "status": "ok",
+    "secs": 0.5,
+    "huis": 0
+   },
+   {
+    "min_util": 569401,
+    "status": "ok",
+    "secs": 0.5,
+    "huis": 0
+   },
+   {
+    "min_util": 284700,
+    "status": "timeout",
+    "secs": 20.03,
+    "huis": -1
+   }
+  ]
+ }
+}
