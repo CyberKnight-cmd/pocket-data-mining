@@ -1,6 +1,7 @@
 [package]
 name = "pocket-data-mining"
 version = "1.0.0"
+license = "MIT"
 edition = "2024"
 default-run = "air-huim"
 

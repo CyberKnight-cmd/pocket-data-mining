@@ -8,6 +8,7 @@ version: 1.0.0
 date-released: 2026-11-07
 repository-code: "https://github.com/CyberKnight-cmd/pocket-data-mining"
 type: software
+license: MIT
 keywords:
   - high-utility itemset mining
   - memory-bounded data mining
