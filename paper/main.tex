@@ -428,7 +428,8 @@ about 30\,MB at 1\,GB) and check it on every run (Section~\ref{sec:budget}).
 
 \textbf{Hardware.} Raspberry Pi~4 Model~B, 4\,GB RAM, quad-core Cortex-A72 at 1.8\,GHz, 64\,GB SD
 card, Debian~13, Linux~6.18. CPU frequency stayed at 1.8\,GHz with no throttling in any run.
-Speed comparisons at one thread each were run on a laptop (Section~\ref{sec:speed}).
+Speed comparisons at one thread each, and thread scaling beyond four threads, were run on a laptop
+(AMD Ryzen~7 7435HS, 8 cores and 16 threads, 23\,GB RAM; Section~\ref{sec:speed}).
 
 \textbf{Software.} Air-HUIM built with Rust~1.99 in release mode. SPMF~2.67a~\cite{spmf2016} on
 OpenJDK~25 with \texttt{-Xmx} set to the budget. Both read the same files (checksums recorded per
@@ -571,7 +572,25 @@ tree in memory at a time.
 
 SPMF is single-threaded, so we compare one thread against one thread on a laptop, repeating each
 of the 102 pairs that both libraries finished at 1\,GB on the Pi five times and reporting the
-median. \pending{1-thread table, 102 pairs $\times$ 5 repeats; run finishing 1 Nov, 21:00}
+median (Fig.~\ref{fig:speed}). Wall time includes process start-up, which costs SPMF about
+0.5\,s for the JVM. Air-HUIM is faster on 63 of the 102 pairs, with a median speed-up of
+1.37$\times$. Counting only the 74 pairs where both tools take at least a second, the two are
+level: the median is 1.07$\times$, and Air-HUIM is faster on 38.
+
+The spread is wide. EFIM is 17--27$\times$ faster on connect, pumsb and liquor, and TKO is
+32$\times$ faster on retail. In the other direction, EFIM-Closed and TKU on mushroom are 17$\times$
+and 11$\times$ slower, and the utility-list miners on the sparse retail, liquor and fruithut sets
+are about 3$\times$ slower. Budget safety is therefore not free in every case. We have not yet
+profiled these slow cases.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig/speed.pdf}
+\caption{One thread against one thread: median of five runs for each of the 102 pairs both
+libraries finished, 1\,GB budget, laptop. Solid line: equal time; dashed lines: 10$\times$
+either way.}
+\label{fig:speed}
+\end{figure}
 
 \subsection{Thread scaling}
 

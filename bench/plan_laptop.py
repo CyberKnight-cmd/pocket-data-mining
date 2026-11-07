@@ -89,10 +89,14 @@ def main():
             for algo in ("fhm", "efim"):
                 for impl in ("air", "spmf"):
                     J(experiment="big-cmp", impl=impl, algo=algo, dataset=ds, budget_mb=b, cap_s=CAP, priority=150)
-    for t in (1, 4, 8, 16):
-        for algo in ("fhm", "efim"):
-            J(experiment="big-threads", impl="air", algo=algo, dataset="lgsr", budget_mb=20480, threads=t,
-              cap_s=CAP, priority=200)
+    # 8 GB is above every peak of these runs (LGSR FHM: 4.5 GB) and leaves the 23 GB laptop room.
+    for ds in ("lgsr", "chainstore-x40", "hm"):
+        for t in (1, 2, 4, 8, 16):
+            for algo in ("fhm", "efim", "hui-miner"):
+                # r6 FHM spills ~2.1 GB of runs here, above the 2 GB default run-directory cap.
+                extra = {"disk_cap_mb": 16384} if algo == "fhm" else {}
+                J(experiment="big-threads", impl="air", algo=algo, dataset=ds, budget_mb=8192, threads=t,
+                  cap_s=2 * CAP, priority=200, **extra)
     for b in (1024, 4096):
         for algo in ("fhm", "efim"):
             for impl in ("air", "spmf"):

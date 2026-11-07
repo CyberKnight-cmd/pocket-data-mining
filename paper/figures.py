@@ -2,6 +2,7 @@
 """Figures for the paper, from the Pi run records (bench/collect.py output).
 
 usage: figures.py PI_DATA_DIR [OUT_DIR]   (default OUT_DIR: paper/fig)
+The 1-thread laptop timing runs are read from $TIMING_DATA (default ~/.cache/air-huim-bench/timing/data).
 """
 import csv, json, os, sys
 from collections import defaultdict
@@ -262,5 +263,39 @@ def fig_threads():
     save(fig, "threads_pi.pdf")
 
 
-for f in (fig_trace, fig_peak, fig_outcomes, fig_curve, fig_lgsr, fig_threads):
+def fig_speed():
+    root = os.path.join(os.environ.get("TIMING_DATA", os.path.expanduser("~/.cache/air-huim-bench/timing/data")), "runs")
+    w = defaultdict(list)
+    for d in os.listdir(root):
+        try:
+            j = json.load(open(os.path.join(root, d, "job.json")))
+            r = json.load(open(os.path.join(root, d, "result.json")))
+        except (OSError, ValueError):
+            continue
+        if r["status"] == "ok":
+            w[(j["dataset"], j["algo"], j["impl"])].append(r["wall_s"])
+    pairs = [(np.median(w[(ds, a, "spmf")]), np.median(v)) for (ds, a, i), v in w.items()
+             if i == "air" and (ds, a, "spmf") in w]
+    s, a = np.array(pairs).T
+    ratio = s / a
+    long = (s >= 1) & (a >= 1)
+    print(f"speed: {len(pairs)} pairs, median SPMF/Air {np.median(ratio):.2f}, Air faster {np.sum(ratio > 1)}; "
+          f"both >= 1 s: {long.sum()} pairs, median {np.median(ratio[long]):.2f}, Air faster {np.sum(ratio[long] > 1)}")
+    fig, ax = plt.subplots(figsize=(COL, 2.3))
+    lim = (0.05, 400)
+    for k, ls in ((1, "-"), (10, (0, (3, 2))), (0.1, (0, (3, 2)))):
+        ax.plot(lim, [x / k for x in lim], color=MUTED, lw=0.8, ls=ls, zorder=1)
+    ax.text(0.07, 300, "SPMF faster", color=SPMF, ha="left", va="top")
+    ax.text(380, 0.25, "Air-HUIM faster", color=AIR, ha="right", va="center")
+    fast = ratio > 1
+    ax.scatter(s[fast], a[fast], s=10, color=AIR, label=f"Air-HUIM faster ({fast.sum()})", zorder=2, lw=0)
+    ax.scatter(s[~fast], a[~fast], s=10, color=SPMF, label=f"SPMF as fast or faster ({(~fast).sum()})", zorder=2, lw=0)
+    ax.set(xscale="log", yscale="log", xlim=lim, ylim=lim, xlabel="SPMF time (s)", ylabel="Air-HUIM time (s)")
+    ax.set_aspect("equal")
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False, handletextpad=0.2,
+              columnspacing=1.0)
+    save(fig, "speed.pdf")
+
+
+for f in (fig_trace, fig_peak, fig_outcomes, fig_curve, fig_lgsr, fig_threads, fig_speed):
     f()
