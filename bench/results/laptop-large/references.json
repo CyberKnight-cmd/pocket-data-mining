@@ -1,0 +1,52 @@
+{
+ "lgsr|117945433|hui": {
+  "sha": "7ad7456601a54c342a0818964a68cbdaa13a0ba50b1fcbd04b851d87c47b9d56",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/b0c6cbb2a430135c/output.norm.gz",
+  "id": "b0c6cbb2a430135c"
+ },
+ "lgsr|117945433|closed": {
+  "sha": "7ad7456601a54c342a0818964a68cbdaa13a0ba50b1fcbd04b851d87c47b9d56",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/dd44a1c549933cc7/output.norm.gz",
+  "id": "dd44a1c549933cc7"
+ },
+ "hm|44232325|hui": {
+  "sha": "3dae852448eaace985c2ad7fcac19a92c36da9376038cfac4ba239633f2fff8f",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/2aa1ab105aead308/output.norm.gz",
+  "id": "2aa1ab105aead308"
+ },
+ "hm|44232325|closed": {
+  "sha": "3dae852448eaace985c2ad7fcac19a92c36da9376038cfac4ba239633f2fff8f",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/ce031c8f74a91e3f/output.norm.gz",
+  "id": "ce031c8f74a91e3f"
+ },
+ "lgsr-custweek|94855535|hui": {
+  "sha": "0eb04fd6c4290232c26d5c1c2d157121c8c968f6398c87b6cd7e1707b37ab388",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/27db0f866940aecf/output.norm.gz",
+  "id": "27db0f866940aecf"
+ },
+ "lgsr-custweek|94855535|closed": {
+  "sha": "0eb04fd6c4290232c26d5c1c2d157121c8c968f6398c87b6cd7e1707b37ab388",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/11270d74b9adbc58/output.norm.gz",
+  "id": "11270d74b9adbc58"
+ },
+ "chainstore-x10|26099730|hui": {
+  "sha": "4c3f0b19067ab17a8cf8b8c07ca9bde3aff107ced7b9dfaa017616ab3ba7fe5e",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/f24dba01f7bf3614/output.norm.gz",
+  "id": "f24dba01f7bf3614"
+ },
+ "chainstore-x10|26099730|closed": {
+  "sha": "4c3f0b19067ab17a8cf8b8c07ca9bde3aff107ced7b9dfaa017616ab3ba7fe5e",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/208e6a814d924d31/output.norm.gz",
+  "id": "208e6a814d924d31"
+ },
+ "chainstore-x40|104398920|hui": {
+  "sha": "9ee17e97e211a2645c47015e589d5716583e83e1c046dd8aa18006966f57f3c4",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/2795a27ce4fb56f6/output.norm.gz",
+  "id": "2795a27ce4fb56f6"
+ },
+ "chainstore-x40|104398920|closed": {
+  "sha": "9ee17e97e211a2645c47015e589d5716583e83e1c046dd8aa18006966f57f3c4",
+  "path": "/home/cyberknight/.cache/air-huim-bench/laptop/data/runs/866ffae4faea0ee3/output.norm.gz",
+  "id": "866ffae4faea0ee3"
+ }
+}

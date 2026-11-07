@@ -1,0 +1,61 @@
+{
+ "static": {
+  "uname": "Linux loq 7.2.7-arch1-1 #1 SMP PREEMPT_DYNAMIC Mon, 21 Sep 2026 18:51:14 +0000 x86_64 GNU/Linux",
+  "model": "",
+  "os": "Arch Linux",
+  "cpus": 16,
+  "storage": "/dev/nvme0n1p1  469G   83G  362G  19% /",
+  "tmpfs_tmp": "tmpfs",
+  "java": "/bin/sh: line 1: /home/cyberknight/bench/java/bin/java: No such file or directory",
+  "python": "3.14.7"
+ },
+ "binaries": {
+  "air": "d67614db6b3e1423a3d3f05cdaee9cd9a4d13295cd78bd285cef9ab58ec77f5a",
+  "spmf": "4aa468384693b2016b457ea310a08cc24aa83abd42d3169ad65b9027778dfe6a"
+ },
+ "config": {
+  "binaries": {
+   "air": "/home/cyberknight/.cache/air-huim-bench/laptop/air-huim"
+  },
+  "java": "java",
+  "spmf_jar": "/home/cyberknight/.cache/air-huim-bench/mhui/spmf.jar",
+  "datasets": {
+   "lgsr": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/large/lgsr/lgsr.txt",
+    "min_util": 117945433,
+    "threshold_source": "calibrated 0.2%",
+    "sha256": "c9e44eada49d9896b8b9784a88cc28c0e8a65cd1c88a0b6b29c0f3e6a280c2ac"
+   },
+   "lgsr-custweek": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/large/lgsr/lgsr_custweek.txt",
+    "min_util": 94855535,
+    "threshold_source": "calibrated 0.2%",
+    "sha256": "ec0b07ce1442bfe9c28a1d083a7c9dbc607b806c340f682b5e16cad54037a127"
+   },
+   "lgsr-1yr": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/large/lgsr/lgsr_1yr.txt",
+    "min_util": 51785693,
+    "threshold_source": "calibrated 0.2%",
+    "sha256": "fdcce625ecce586a76a5fa82367b0528db487b76e75150fdb3fa38d8fa333a9f"
+   },
+   "hm": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/large/hm.txt",
+    "min_util": 44232325,
+    "threshold_source": "calibrated 0.005%",
+    "sha256": "c3e1eb594c05e5ddbd588cbfe3337d409a196de5ea305cded9d723c65559b8e5"
+   },
+   "chainstore-x10": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/large/chainstore_x10.txt",
+    "min_util": 26099730,
+    "threshold_source": "chainstore x1 threshold x10",
+    "sha256": "85b61d953c1e7238568804d9239fb9939faee1e812154171dfa8b73830c5345d"
+   },
+   "chainstore-x40": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/large/chainstore_x40.txt",
+    "min_util": 104398920,
+    "threshold_source": "chainstore x1 threshold x40",
+    "sha256": "ea99d6a677d02082c86b330217206fa964eecf5fdc96436d7d7556854d936d93"
+   }
+  }
+ }
+}

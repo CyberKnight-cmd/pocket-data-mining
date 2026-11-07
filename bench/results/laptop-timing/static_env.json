@@ -1,0 +1,314 @@
+{
+ "static": {
+  "uname": "Linux loq 7.2.11-arch1-1 #1 SMP PREEMPT_DYNAMIC Fri, 16 Oct 2026 00:28:58 +0000 x86_64 GNU/Linux",
+  "model": "",
+  "os": "Arch Linux",
+  "cpus": 16,
+  "storage": "/dev/nvme1n1p1  469G  101G  345G  23% /",
+  "tmpfs_tmp": "tmpfs",
+  "java": "/bin/sh: line 1: /home/cyberknight/bench/java/bin/java: No such file or directory",
+  "python": "3.14.8"
+ },
+ "binaries": {
+  "air": "abe304adb071c32e019e6e3e109bf42daf9bd07f9fd6a68920d2bc11f458d83a",
+  "spmf": "4aa468384693b2016b457ea310a08cc24aa83abd42d3169ad65b9027778dfe6a"
+ },
+ "config": {
+  "binaries": {
+   "air": "/home/cyberknight/Hub/ProgrammingLanguages/Research/pocket-data-mining/target/release/air-huim"
+  },
+  "java": "/usr/bin/java",
+  "spmf_jar": "/home/cyberknight/.cache/air-huim-bench/mhui/spmf.jar",
+  "datasets": {
+   "foodmart": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/foodmart.txt",
+    "min_util": 3000,
+    "min_util_avg": 600,
+    "pct_fallback": null,
+    "threshold_source": "fixed",
+    "sha256": "47ffa197f9f26d757a4ad37021f537674af77d516bf930d0bb601591e4b26d66",
+    "stats": {
+     "tx": 4141,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 14,
+     "utility_scale": 1,
+     "distinct_items": 1559,
+     "avg_len": 4.424,
+     "density": 0.002838,
+     "sha256": "47ffa197f9f26d757a4ad37021f537674af77d516bf930d0bb601591e4b26d66"
+    }
+   },
+   "chainstore": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/chainstore.txt",
+    "min_util": 2609973,
+    "min_util_avg": 1304986,
+    "pct_fallback": 0.05,
+    "threshold_source": "calibrated 0.1%",
+    "sha256": "2881cc4c9e25bb419e2adc2876a6bde05d96ca5f2d8e4b7f35c52fd97be315c3",
+    "stats": {
+     "tx": 1112949,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 170,
+     "utility_scale": 1,
+     "distinct_items": 46086,
+     "avg_len": 7.227,
+     "density": 0.000157,
+     "sha256": "2881cc4c9e25bb419e2adc2876a6bde05d96ca5f2d8e4b7f35c52fd97be315c3"
+    }
+   },
+   "ecommerce": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/ecommerce_utility_no_timestamps.txt",
+    "min_util": 994027,
+    "min_util_avg": 248506,
+    "pct_fallback": 0.5,
+    "threshold_source": "calibrated 0.2%",
+    "sha256": "7fec15e1e24031049b06da7e082297e9c94766cd87ae1d76d44e2a3b9406733d",
+    "stats": {
+     "tx": 14975,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 29,
+     "utility_scale": 1,
+     "distinct_items": 3468,
+     "avg_len": 11.643,
+     "density": 0.003357,
+     "sha256": "7fec15e1e24031049b06da7e082297e9c94766cd87ae1d76d44e2a3b9406733d"
+    }
+   },
+   "fruithut": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/fruithut_utility.txt",
+    "min_util": 26187,
+    "min_util_avg": 5237,
+    "pct_fallback": 0.5,
+    "threshold_source": "calibrated 0.01%",
+    "sha256": "3da68090d9f38ecd3726717e010b2edc9d96a556c161f168b2ac9f8a0622b259",
+    "stats": {
+     "tx": 181970,
+     "dup_tx": 0,
+     "dropped_lines": 1266,
+     "tu_mismatch": 0,
+     "max_len": 36,
+     "utility_scale": 1,
+     "distinct_items": 1265,
+     "avg_len": 3.587,
+     "density": 0.002836,
+     "sha256": "3da68090d9f38ecd3726717e010b2edc9d96a556c161f168b2ac9f8a0622b259"
+    }
+   },
+   "liquor": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/liquor_11.txt",
+    "min_util": 111974,
+    "min_util_avg": 44789,
+    "pct_fallback": 0.5,
+    "threshold_source": "calibrated 0.005%",
+    "sha256": "530195acd78093cd579c0083e6fc16a3865a4df74eab970f10a47ba0eace9817",
+    "stats": {
+     "tx": 52131,
+     "dup_tx": 161,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 11,
+     "utility_scale": 100,
+     "distinct_items": 4026,
+     "avg_len": 7.874,
+     "density": 0.001956,
+     "sha256": "530195acd78093cd579c0083e6fc16a3865a4df74eab970f10a47ba0eace9817"
+    }
+   },
+   "chicago": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/Chicago_Crimes_2001_to_2017_utility.txt",
+    "min_util": 397,
+    "min_util_avg": 39,
+    "pct_fallback": 0.05,
+    "threshold_source": "calibrated 0.005%",
+    "sha256": "b06fd95caa9d103099e5389d36c4f7d7ab03a105284d2c4caddbcbeee580b881",
+    "stats": {
+     "tx": 2662309,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 15,
+     "utility_scale": 1,
+     "distinct_items": 35,
+     "avg_len": 1.796,
+     "density": 0.051314,
+     "sha256": "b06fd95caa9d103099e5389d36c4f7d7ab03a105284d2c4caddbcbeee580b881"
+    }
+   },
+   "retail": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/retail_utility_spmf.txt",
+    "min_util": 1491,
+    "min_util_avg": 1491,
+    "pct_fallback": 0.05,
+    "threshold_source": "calibrated 0.01%",
+    "sha256": "29cf23885b256e4e9d5d497569c4d8a889d7edabfaafb797eacf46001b858ff5",
+    "stats": {
+     "tx": 88162,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 76,
+     "utility_scale": 1,
+     "distinct_items": 16470,
+     "avg_len": 10.306,
+     "density": 0.000626,
+     "sha256": "29cf23885b256e4e9d5d497569c4d8a889d7edabfaafb797eacf46001b858ff5"
+    }
+   },
+   "mushroom": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/mushroom_utility_spmf.txt",
+    "min_util": 170686,
+    "min_util_avg": 34137,
+    "pct_fallback": 5,
+    "threshold_source": "calibrated 5%",
+    "sha256": "fbf9a30279d0c1f9f3650d35aff65db4acf4bbd9d2a789852d4ae2bb50d906e0",
+    "stats": {
+     "tx": 8124,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 23,
+     "utility_scale": 1,
+     "distinct_items": 119,
+     "avg_len": 23.0,
+     "density": 0.193277,
+     "sha256": "fbf9a30279d0c1f9f3650d35aff65db4acf4bbd9d2a789852d4ae2bb50d906e0"
+    }
+   },
+   "pumsb": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/pumsb_utility_spmf.txt",
+    "min_util": 15282367,
+    "min_util_avg": 3322253,
+    "pct_fallback": 10,
+    "threshold_source": "fixed 23%",
+    "sha256": "08ac4ae539aaafd523de9b879626e8869a93879f8216bb4893ff8f40e3a8c2bd",
+    "stats": {
+     "tx": 49046,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 74,
+     "utility_scale": 1,
+     "distinct_items": 2113,
+     "avg_len": 74.0,
+     "density": 0.035021,
+     "sha256": "08ac4ae539aaafd523de9b879626e8869a93879f8216bb4893ff8f40e3a8c2bd"
+    }
+   },
+   "chess": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/chess_utility_spmf.txt",
+    "min_util": 539164,
+    "min_util_avg": 107832,
+    "pct_fallback": 10,
+    "threshold_source": "fixed 25%",
+    "sha256": "3883b520ff8be1427c000ad809c44123ec4020cd348e4c77f0723b867b364d1a",
+    "stats": {
+     "tx": 3196,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 37,
+     "utility_scale": 1,
+     "distinct_items": 75,
+     "avg_len": 37.0,
+     "density": 0.493333,
+     "sha256": "3883b520ff8be1427c000ad809c44123ec4020cd348e4c77f0723b867b364d1a"
+    }
+   },
+   "connect": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/connect_utility_spmf.txt",
+    "min_util": 16319950,
+    "min_util_avg": 5099984,
+    "pct_fallback": 20,
+    "threshold_source": "fixed 32%",
+    "sha256": "6578200b2fcce654332d3b77d2b3763952094b8d6a4a3ae7723eab8b17f611b0",
+    "stats": {
+     "tx": 67557,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 43,
+     "utility_scale": 1,
+     "distinct_items": 129,
+     "avg_len": 43.0,
+     "density": 0.333333,
+     "sha256": "6578200b2fcce654332d3b77d2b3763952094b8d6a4a3ae7723eab8b17f611b0"
+    }
+   },
+   "accidents": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/accidents_utility_spmf.txt",
+    "min_util": 23536996,
+    "min_util_avg": 9807081,
+    "pct_fallback": 10,
+    "threshold_source": "fixed 12%",
+    "sha256": "6ff606761f8716789ae67bd2e871fdd319ea248e60c265cccaba5a3b8897b9a0",
+    "stats": {
+     "tx": 340183,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 51,
+     "utility_scale": 1,
+     "distinct_items": 468,
+     "avg_len": 33.808,
+     "density": 0.072239,
+     "sha256": "6ff606761f8716789ae67bd2e871fdd319ea248e60c265cccaba5a3b8897b9a0"
+    }
+   },
+   "kosarak": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/kosarak_utility_spmf.txt",
+    "min_util": 1409254,
+    "min_util_avg": 281850,
+    "pct_fallback": 0.2,
+    "threshold_source": "calibrated 1%",
+    "sha256": "9138a0b36589b2e307e463ab6500decc772d94568b3901f46ed03e749f12ccfc",
+    "stats": {
+     "tx": 990002,
+     "dup_tx": 27,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 2497,
+     "utility_scale": 1,
+     "distinct_items": 41270,
+     "avg_len": 8.1,
+     "density": 0.000196,
+     "sha256": "9138a0b36589b2e307e463ab6500decc772d94568b3901f46ed03e749f12ccfc"
+    }
+   },
+   "bms": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/BMS_utility_spmf.txt",
+    "min_util": 2277606,
+    "min_util_avg": 216914,
+    "pct_fallback": 5,
+    "threshold_source": "fixed 2.1%",
+    "sha256": "cd2e1f28fed74a47615c77cb3b2ee0d7a67c127540ae741c8d91800195514698",
+    "stats": {
+     "tx": 59602,
+     "dup_tx": 0,
+     "dropped_lines": 0,
+     "tu_mismatch": 0,
+     "max_len": 267,
+     "utility_scale": 1,
+     "distinct_items": 497,
+     "avg_len": 2.511,
+     "density": 0.005052,
+     "sha256": "cd2e1f28fed74a47615c77cb3b2ee0d7a67c127540ae741c8d91800195514698"
+    }
+   },
+   "lgsr": {
+    "path": "/home/cyberknight/.cache/air-huim-bench/datasets/clean/lgsr.txt",
+    "min_util": 117945433,
+    "min_util_avg": null,
+    "pct_fallback": null,
+    "threshold_source": "calibration_large.json (0.2%)",
+    "sha256": "c9e44eada49d9896b8b9784a88cc28c0e8a65cd1c88a0b6b29c0f3e6a280c2ac",
+    "stats": null
+   }
+  }
+ }
+}

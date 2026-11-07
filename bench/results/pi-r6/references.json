@@ -1,0 +1,437 @@
+{
+ "foodmart|3000": {
+  "sha": "cd98bbf4aaeb46335251c36b9c08669c085ab943437aefbba863a6c35809e759",
+  "path": "/home/pi/bench/data/runs/e96e0d3a5e7fa791/output.norm.gz",
+  "id": "e96e0d3a5e7fa791"
+ },
+ "foodmart|3000|closed": {
+  "sha": "39c5970606c647faa732050d86dd6caedf5f820603e120e77acd9b7e6d39097e",
+  "path": "/home/pi/bench/data/runs/7b5dfb1ae40ca503/output.norm.gz",
+  "id": "7b5dfb1ae40ca503"
+ },
+ "foodmart|3000|avg": {
+  "sha": "4ddf3723dfa5523543554a366aad8d370d826cca71d3df3ecf80f64c693a36a0",
+  "path": "/home/pi/bench/data/runs/c80c646de63634f5/output.norm.gz",
+  "id": "c80c646de63634f5"
+ },
+ "chainstore|2609973|hui": {
+  "sha": "95a79f9d38e842edb0575aa5e66fd56046d5f8ea93a1b3e0dd130fc85b020467",
+  "path": "/home/pi/bench/data/runs/c6ff9de7096732dc/output.norm.gz",
+  "id": "c6ff9de7096732dc"
+ },
+ "chainstore|2609973|closed": {
+  "sha": "95a79f9d38e842edb0575aa5e66fd56046d5f8ea93a1b3e0dd130fc85b020467",
+  "path": "/home/pi/bench/data/runs/d2cd187d0f5f467e/output.norm.gz",
+  "id": "d2cd187d0f5f467e"
+ },
+ "chainstore|2609973|avg": {
+  "sha": "69b94aa9863fc7bd2724f178b3cb879edc531c2a4aa3537314ed7a8c0a7deb1f",
+  "path": "/home/pi/bench/data/runs/97ae76921669f286/output.norm.gz",
+  "id": "97ae76921669f286"
+ },
+ "retail|1491|hui": {
+  "sha": "2c2b750f64b9dc2fa1351670e66ba12fcf04c6a9be8c6f7ebd473630db7db930",
+  "path": "/home/pi/bench/data/runs/67086620ee84e9aa/output.norm.gz",
+  "id": "67086620ee84e9aa"
+ },
+ "retail|1491|closed": {
+  "sha": "600342fd69d685f6f4facf38ba9f6347d552f27fdc21ebfe7612823642f55973",
+  "path": "/home/pi/bench/data/runs/67d42656b9d35401/output.norm.gz",
+  "id": "67d42656b9d35401"
+ },
+ "retail|1491|avg": {
+  "sha": "cf26f951b3f4eb20d6984a6b98d58aca62543ef63fffaa8244562f5d6002f095",
+  "path": "/home/pi/bench/data/runs/2103e930ec36dbe7/output.norm.gz",
+  "id": "2103e930ec36dbe7"
+ },
+ "kosarak|1409254|hui": {
+  "sha": "427bd605a032cc73c06adf4f3b1f8bcee0c13d038b17a7ae05231d6c3128906b",
+  "path": "/home/pi/bench/data/runs/f05d9436cdfa8a67/output.norm.gz",
+  "id": "f05d9436cdfa8a67"
+ },
+ "kosarak|1409254|closed": {
+  "sha": "427bd605a032cc73c06adf4f3b1f8bcee0c13d038b17a7ae05231d6c3128906b",
+  "path": "/home/pi/bench/data/runs/5b77ab6f5dcbc5da/output.norm.gz",
+  "id": "5b77ab6f5dcbc5da"
+ },
+ "kosarak|1409254|avg": {
+  "sha": "c0df6b35e26b18734bd3c48e39cbb1873dfd8258c5aabd4a7dc167cf150bb30e",
+  "path": "/home/pi/bench/data/runs/702b37187d2058ef/output.norm.gz",
+  "id": "702b37187d2058ef"
+ },
+ "accidents|23536996|hui": {
+  "sha": "af4d44f8246d1927befc16acf220cdd791360f744880fc1607c58772b9d2ea96",
+  "path": "/home/pi/bench/data/runs/13611a1a9fad46ef/output.norm.gz",
+  "id": "13611a1a9fad46ef"
+ },
+ "accidents|23536996|closed": {
+  "sha": "af4d44f8246d1927befc16acf220cdd791360f744880fc1607c58772b9d2ea96",
+  "path": "/home/pi/bench/data/runs/f9089d771339fae9/output.norm.gz",
+  "id": "f9089d771339fae9"
+ },
+ "accidents|23536996|avg": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/85ba04c327ac22cf/output.norm.gz",
+  "id": "85ba04c327ac22cf"
+ },
+ "chicago|397|hui": {
+  "sha": "46b2a63a7bbde848d1b00134e990f97d2aa3232a933efcc06c93dad11a85f5ae",
+  "path": "/home/pi/bench/data/runs/f90c99788e0aadb0/output.norm.gz",
+  "id": "f90c99788e0aadb0"
+ },
+ "chicago|397|closed": {
+  "sha": "7f2354a84081c0d151be0d9b8ed4a22115d9766b9bb2a0305ab8d7359721c34b",
+  "path": "/home/pi/bench/data/runs/8a7e0ecd95062de8/output.norm.gz",
+  "id": "8a7e0ecd95062de8"
+ },
+ "chicago|397|avg": {
+  "sha": "18581e8c5ad4e91792951b5e54681ff8226e8ff8857029eb07eb76ddf65572c8",
+  "path": "/home/pi/bench/data/runs/a88ea07e36b74b53/output.norm.gz",
+  "id": "a88ea07e36b74b53"
+ },
+ "mushroom|170686|hui": {
+  "sha": "331289677eb604c5c2d08d104db7c3356f7fc4274e87e0ee161a847d5bdd2ed7",
+  "path": "/home/pi/bench/data/runs/dbed4ddf90a731a9/output.norm.gz",
+  "id": "dbed4ddf90a731a9"
+ },
+ "mushroom|170686|closed": {
+  "sha": "e7599c2095efbb50cff076f5ea316f5f733e12fc3dba367de4e5537e3068fa16",
+  "path": "/home/pi/bench/data/runs/a9bd780f0da49d85/output.norm.gz",
+  "id": "a9bd780f0da49d85"
+ },
+ "mushroom|170686|avg": {
+  "sha": "d380b98fcd30737a3730793af1680f3ef04921d564d21d3d2691b78694bfa0ac",
+  "path": "/home/pi/bench/data/runs/423c272801d49387/output.norm.gz",
+  "id": "423c272801d49387"
+ },
+ "chess|539164|hui": {
+  "sha": "50ad067854d231b28fe0a9ba63a2cc33219bab880d9f78aaf86f79e071ae051c",
+  "path": "/home/pi/bench/data/runs/987884dbead7fdf3/output.norm.gz",
+  "id": "987884dbead7fdf3"
+ },
+ "chess|539164|closed": {
+  "sha": "423c4d8ee3f3a2f5faeb3d1146e9c6e12163cf316e8bcdd56e94f43c7c40b6ef",
+  "path": "/home/pi/bench/data/runs/03a8b4533a8bbb83/output.norm.gz",
+  "id": "03a8b4533a8bbb83"
+ },
+ "chess|539164|avg": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/73cf9fb2e440be3a/output.norm.gz",
+  "id": "73cf9fb2e440be3a"
+ },
+ "bms|2277606|hui": {
+  "sha": "d953243fc1192009c1173007383b5f6e84e997187b8f3a5e326bf7359159b10b",
+  "path": "/home/pi/bench/data/runs/d9bf38e420f03536/output.norm.gz",
+  "id": "d9bf38e420f03536"
+ },
+ "bms|2277606|closed": {
+  "sha": "d953243fc1192009c1173007383b5f6e84e997187b8f3a5e326bf7359159b10b",
+  "path": "/home/pi/bench/data/runs/9b54ed0fe6154e8d/output.norm.gz",
+  "id": "9b54ed0fe6154e8d"
+ },
+ "bms|2277606|avg": {
+  "sha": "da75be13acdc9b085331c3c297023ecf490fb5f0939a81c0421561c77f20a440",
+  "path": "/home/pi/bench/data/runs/1e7f90abc374bb33/output.norm.gz",
+  "id": "1e7f90abc374bb33"
+ },
+ "ecommerce|994027|hui": {
+  "sha": "e94fc725f71494beeb3fb8a0350530edf25e54d333fb9e336928cfd8475aedd0",
+  "path": "/home/pi/bench/data/runs/6fc1409bc382a7f8/output.norm.gz",
+  "id": "6fc1409bc382a7f8"
+ },
+ "ecommerce|994027|closed": {
+  "sha": "0df879d2ae8bc98ab1b83e33052e0dca3b16af38dcd8d173593be4ca362402a7",
+  "path": "/home/pi/bench/data/runs/263a6267b497d450/output.norm.gz",
+  "id": "263a6267b497d450"
+ },
+ "ecommerce|994027|avg": {
+  "sha": "5776ccaf764123c354e7db0dc61f3e709cb0184f23f61a3467d661e334238f3b",
+  "path": "/home/pi/bench/data/runs/6c4e769762592cea/output.norm.gz",
+  "id": "6c4e769762592cea"
+ },
+ "fruithut|26187|hui": {
+  "sha": "886c1a3ebc9acba1112773efcdfb02791d43d9f6b5989dd440145cce85e84c24",
+  "path": "/home/pi/bench/data/runs/de5c461de52c7b60/output.norm.gz",
+  "id": "de5c461de52c7b60"
+ },
+ "fruithut|26187|closed": {
+  "sha": "69b72b3a60824731dd878c1fc5c9b54e8b11fd09ee8cb4ce9d4b70bbe9aa1007",
+  "path": "/home/pi/bench/data/runs/5bb6f1e527806dec/output.norm.gz",
+  "id": "5bb6f1e527806dec"
+ },
+ "fruithut|26187|avg": {
+  "sha": "c95cfb4fe6dbb04c89ad2744ad8f89232290051e5add688b34c9477735e73baf",
+  "path": "/home/pi/bench/data/runs/eae66e3e0877bda3/output.norm.gz",
+  "id": "eae66e3e0877bda3"
+ },
+ "liquor|111974|hui": {
+  "sha": "56ef8e0ca4e0f0c692f3c4e8f42916ddd64946321b1113cfc4c30abc5db0514f",
+  "path": "/home/pi/bench/data/runs/075947635f69d6ba/output.norm.gz",
+  "id": "075947635f69d6ba"
+ },
+ "liquor|111974|closed": {
+  "sha": "1a68573f781478a1e54f1b6c8e8a0fdf5ebcaeed301aeedd0b8b03a7b169fffb",
+  "path": "/home/pi/bench/data/runs/34ca9ec244d8dd22/output.norm.gz",
+  "id": "34ca9ec244d8dd22"
+ },
+ "liquor|111974|avg": {
+  "sha": "44238c2fd29619fe4a0f6fe363a7ddd83d22ae3d9a1a754c63305986a0b2af78",
+  "path": "/home/pi/bench/data/runs/d82a1e6f814d12df/output.norm.gz",
+  "id": "d82a1e6f814d12df"
+ },
+ "connect|16319950|hui": {
+  "sha": "aad08e0ca401b76c7a31d3fd6037a6be501e0a62ba07132646b34c23c827d16a",
+  "path": "/home/pi/bench/data/runs/39dff3a0c6084796/output.norm.gz",
+  "id": "39dff3a0c6084796"
+ },
+ "connect|16319950|closed": {
+  "sha": "5a7cf2881f7ce0c0fce33c7b83bcb7187398bdbc4a3df2714f724ea28a1758f7",
+  "path": "/home/pi/bench/data/runs/822b5f050a299a71/output.norm.gz",
+  "id": "822b5f050a299a71"
+ },
+ "connect|16319950|avg": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/6db2e48cfc211a50/output.norm.gz",
+  "id": "6db2e48cfc211a50"
+ },
+ "pumsb|15282367|hui": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/165b4a500195d7b5/output.norm.gz",
+  "id": "165b4a500195d7b5"
+ },
+ "pumsb|15282367|closed": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/5389185646d2cde6/output.norm.gz",
+  "id": "5389185646d2cde6"
+ },
+ "pumsb|15282367|avg": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/91170ee1108eb981/output.norm.gz",
+  "id": "91170ee1108eb981"
+ },
+ "foodmart|600|avg": {
+  "sha": "2f50f3b6cb10ccd3d541bee3e45f84a1f1fa3c33479ad93326f7d3175c5aad75",
+  "path": "/home/pi/bench/data/runs/350c0ea06e7a67f5/output.norm.gz",
+  "id": "350c0ea06e7a67f5"
+ },
+ "foodmart|3000|mmu": {
+  "sha": "cd98bbf4aaeb46335251c36b9c08669c085ab943437aefbba863a6c35809e759",
+  "path": "/home/pi/bench/data/runs/a360e19b090e9bc5/output.norm.gz",
+  "id": "a360e19b090e9bc5"
+ },
+ "foodmart|3000|windows": {
+  "sha": "ccd53176c8ed4bd492784ee964156d37323b77940cbcde03fdd6eb4ca067971d",
+  "path": "/home/pi/bench/data/runs/555aa05f7a07de31/output.norm.gz",
+  "id": "555aa05f7a07de31"
+ },
+ "chainstore|1304986|avg": {
+  "sha": "90da63cdff13065b736196dde895f685e9f8dd3e17f2fe15ce6ab32607ae4f79",
+  "path": "/home/pi/bench/data/runs/e58920387e890c93/output.norm.gz",
+  "id": "e58920387e890c93"
+ },
+ "chainstore|2609973|mmu": {
+  "sha": "95a79f9d38e842edb0575aa5e66fd56046d5f8ea93a1b3e0dd130fc85b020467",
+  "path": "/home/pi/bench/data/runs/17d8119d2df1bc22/output.norm.gz",
+  "id": "17d8119d2df1bc22"
+ },
+ "chainstore|2609973|windows": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/1a20486b6b5b6315/output.norm.gz",
+  "id": "1a20486b6b5b6315"
+ },
+ "retail|1491|mmu": {
+  "sha": "7cc1cb1230ddf887966b7ea594ec836d3142b42e03f52a3f0bfda44e4a93a9d4",
+  "path": "/home/pi/bench/data/runs/645149826b708c27/output.norm.gz",
+  "id": "645149826b708c27"
+ },
+ "retail|1491|windows": {
+  "sha": "c3871ac4cbed23c11f36f851bfaa23618f36cfd6ec75502f9999ef6963a60b4d",
+  "path": "/home/pi/bench/data/runs/9a98bd4c5bf80f8f/output.norm.gz",
+  "id": "9a98bd4c5bf80f8f"
+ },
+ "foodmart|724|windows": {
+  "sha": "2af86c3bc4a58dcea176082d673e3803f22b909a9a762f633b31d8a6c447289a",
+  "path": "/home/pi/bench/data/runs/3a7f214c0dd9b641/output.norm.gz",
+  "id": "3a7f214c0dd9b641"
+ },
+ "kosarak|281850|avg": {
+  "sha": "96da906dcc26f58ad2cdbd614f42ee76111e183188ebf4f53f75864d4720514f",
+  "path": "/home/pi/bench/data/runs/2a240178fd2d0998/output.norm.gz",
+  "id": "2a240178fd2d0998"
+ },
+ "kosarak|1409254|mmu": {
+  "sha": "427bd605a032cc73c06adf4f3b1f8bcee0c13d038b17a7ae05231d6c3128906b",
+  "path": "/home/pi/bench/data/runs/d1f132399d6d0bfb/output.norm.gz",
+  "id": "d1f132399d6d0bfb"
+ },
+ "kosarak|1409254|windows": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/9d20a7cbde260fb6/output.norm.gz",
+  "id": "9d20a7cbde260fb6"
+ },
+ "accidents|9807081|avg": {
+  "sha": "e7a36f72611dc321ba5738043454f0d6d3e8d29f7c98d39012e6fd29f1ff2b38",
+  "path": "/home/pi/bench/data/runs/c1266f172f2fcdd5/output.norm.gz",
+  "id": "c1266f172f2fcdd5"
+ },
+ "accidents|23536996|mmu": {
+  "sha": "af4d44f8246d1927befc16acf220cdd791360f744880fc1607c58772b9d2ea96",
+  "path": "/home/pi/bench/data/runs/9956cbda0a2b5cf1/output.norm.gz",
+  "id": "9956cbda0a2b5cf1"
+ },
+ "accidents|735531|windows": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/aab12f7653347925/output.norm.gz",
+  "id": "aab12f7653347925"
+ },
+ "chicago|39|avg": {
+  "sha": "ae0149c739f05b536a44df3f6b5f14ae8a341cb84aacc3d37ecf4df22d12a31a",
+  "path": "/home/pi/bench/data/runs/6b2148fa313f20ba/output.norm.gz",
+  "id": "6b2148fa313f20ba"
+ },
+ "chicago|397|mmu": {
+  "sha": "97175553608aefa799dc1a7cf2e942be61a9f96a599dea901584e0abe426e863",
+  "path": "/home/pi/bench/data/runs/2c7f1e8af5d77f47/output.norm.gz",
+  "id": "2c7f1e8af5d77f47"
+ },
+ "chicago|397|windows": {
+  "sha": "3517d3f0c7f24f2330ce00164f011620f45c8c9858c3880bddffeda44fbf9ad0",
+  "path": "/home/pi/bench/data/runs/a225e7aa62162789/output.norm.gz",
+  "id": "a225e7aa62162789"
+ },
+ "mushroom|34137|avg": {
+  "sha": "db85fe0435815991af25b6f64a1979470294b2366f664c33140c2537d2e9a861",
+  "path": "/home/pi/bench/data/runs/10cec524f573285d/output.norm.gz",
+  "id": "10cec524f573285d"
+ },
+ "mushroom|170686|mmu": {
+  "sha": "331289677eb604c5c2d08d104db7c3356f7fc4274e87e0ee161a847d5bdd2ed7",
+  "path": "/home/pi/bench/data/runs/5ad1febb392a198a/output.norm.gz",
+  "id": "5ad1febb392a198a"
+ },
+ "mushroom|170686|windows": {
+  "sha": "41606e7d8de24ac8eb69e0e7fa5e0ca706d93c30dcb2e2b12c9585576e0faa63",
+  "path": "/home/pi/bench/data/runs/c558cef310b6e11c/output.norm.gz",
+  "id": "c558cef310b6e11c"
+ },
+ "chess|107832|avg": {
+  "sha": "db3b8326cd58e69d828ca060b0e153c460d64682810c436c5c66b2572bedfc4c",
+  "path": "/home/pi/bench/data/runs/d737186fa7048e32/output.norm.gz",
+  "id": "d737186fa7048e32"
+ },
+ "chess|539164|mmu": {
+  "sha": "50ad067854d231b28fe0a9ba63a2cc33219bab880d9f78aaf86f79e071ae051c",
+  "path": "/home/pi/bench/data/runs/c92f8ff6491b5cea/output.norm.gz",
+  "id": "c92f8ff6491b5cea"
+ },
+ "chess|269582|windows": {
+  "sha": "7749c6e3bf4459943fd6e57d9ebdda1ed04b84630566427486d7b3be32183932",
+  "path": "/home/pi/bench/data/runs/6f5a9e349f526b2f/output.norm.gz",
+  "id": "6f5a9e349f526b2f"
+ },
+ "bms|216914|avg": {
+  "sha": "1700793b00f302a48ab4969f88f3ae065db1a4d2d15db2472228240b7c5ab30a",
+  "path": "/home/pi/bench/data/runs/5d9e058c885fdbe1/output.norm.gz",
+  "id": "5d9e058c885fdbe1"
+ },
+ "bms|2277606|mmu": {
+  "sha": "d953243fc1192009c1173007383b5f6e84e997187b8f3a5e326bf7359159b10b",
+  "path": "/home/pi/bench/data/runs/c7e44c4f3603f343/output.norm.gz",
+  "id": "c7e44c4f3603f343"
+ },
+ "bms|569401|windows": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/0e933f8a02aea4ec/output.norm.gz",
+  "id": "0e933f8a02aea4ec"
+ },
+ "ecommerce|248506|avg": {
+  "sha": "4324721ca96c3878cb6f45a7e12187c4c0c927a8f69e9090459425f43d1c85bf",
+  "path": "/home/pi/bench/data/runs/9dd83e265424490b/output.norm.gz",
+  "id": "9dd83e265424490b"
+ },
+ "ecommerce|994027|mmu": {
+  "sha": "e94fc725f71494beeb3fb8a0350530edf25e54d333fb9e336928cfd8475aedd0",
+  "path": "/home/pi/bench/data/runs/8e1e9c357ee21509/output.norm.gz",
+  "id": "8e1e9c357ee21509"
+ },
+ "ecommerce|994027|windows": {
+  "sha": "a1fd266681c1dedb53de3d86915e5b21fd3867640cc72fa3d8a5c02359974369",
+  "path": "/home/pi/bench/data/runs/5f646e1fe03c1cea/output.norm.gz",
+  "id": "5f646e1fe03c1cea"
+ },
+ "fruithut|5237|avg": {
+  "sha": "54d870ef5ae269bbbb00ccaa3be1c58effbba1bc30dedefcf6c9bc13f689bc3c",
+  "path": "/home/pi/bench/data/runs/1bf44162e6345745/output.norm.gz",
+  "id": "1bf44162e6345745"
+ },
+ "fruithut|26187|mmu": {
+  "sha": "e30a1877c0521aca094b078954914f5fbbf8801f79d72f76b0634bf06903a9e7",
+  "path": "/home/pi/bench/data/runs/e1f35f00f9f47517/output.norm.gz",
+  "id": "e1f35f00f9f47517"
+ },
+ "fruithut|26187|windows": {
+  "sha": "4bfdcd35a0132e0ed0c107a2c81fa730d84581a023f57c8c989118372f4af001",
+  "path": "/home/pi/bench/data/runs/d208e2c3e7cd4b0d/output.norm.gz",
+  "id": "d208e2c3e7cd4b0d"
+ },
+ "liquor|44789|avg": {
+  "sha": "d0abad53a440477aa9db2308644c9c9794d4c01708d9e088bc02cc5fe71f1863",
+  "path": "/home/pi/bench/data/runs/e32b743ba36faebd/output.norm.gz",
+  "id": "e32b743ba36faebd"
+ },
+ "liquor|111974|mmu": {
+  "sha": "748b92e0509f7b0fbb60854f0e4bb2e8a87691e2886797880752ef5e0ba6b22c",
+  "path": "/home/pi/bench/data/runs/e7ab6c4259bee1e6/output.norm.gz",
+  "id": "e7ab6c4259bee1e6"
+ },
+ "liquor|447896|windows": {
+  "sha": "74693ca6a664fb0e7ca7dc5762e12ffdb6dedcc5dbb69c2da8ce869a8cccbfc6",
+  "path": "/home/pi/bench/data/runs/b54aabcc7e6f916f/output.norm.gz",
+  "id": "b54aabcc7e6f916f"
+ },
+ "connect|5099984|avg": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/1a7c10785c06ed54/output.norm.gz",
+  "id": "1a7c10785c06ed54"
+ },
+ "connect|16319950|mmu": {
+  "sha": "aad08e0ca401b76c7a31d3fd6037a6be501e0a62ba07132646b34c23c827d16a",
+  "path": "/home/pi/bench/data/runs/9b74d4b69d4324bb/output.norm.gz",
+  "id": "9b74d4b69d4324bb"
+ },
+ "connect|509998|windows": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/ef385f3c568686b7/output.norm.gz",
+  "id": "ef385f3c568686b7"
+ },
+ "pumsb|3322253|avg": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/3ee699cc60064661/output.norm.gz",
+  "id": "3ee699cc60064661"
+ },
+ "pumsb|15282367|mmu": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/5de28db143bb9f32/output.norm.gz",
+  "id": "5de28db143bb9f32"
+ },
+ "pumsb|477573|windows": {
+  "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "path": "/home/pi/bench/data/runs/b43319965806836c/output.norm.gz",
+  "id": "b43319965806836c"
+ },
+ "foodmart|3000|hui": {
+  "sha": "cd98bbf4aaeb46335251c36b9c08669c085ab943437aefbba863a6c35809e759",
+  "path": "/home/pi/bench/data/runs/c47b05b0671c32bc/output.norm.gz",
+  "id": "c47b05b0671c32bc"
+ },
+ "lgsr|117945433|hui": {
+  "sha": "7ad7456601a54c342a0818964a68cbdaa13a0ba50b1fcbd04b851d87c47b9d56",
+  "path": "/home/pi/bench/data/runs/5712e6db7a4ed3f3/output.norm.gz",
+  "id": "5712e6db7a4ed3f3"
+ },
+ "lgsr|117945433|closed": {
+  "sha": "7ad7456601a54c342a0818964a68cbdaa13a0ba50b1fcbd04b851d87c47b9d56",
+  "path": "/home/pi/bench/data/runs/f7e1f2a8e11748ac/output.norm.gz",
+  "id": "f7e1f2a8e11748ac"
+ }
+}
