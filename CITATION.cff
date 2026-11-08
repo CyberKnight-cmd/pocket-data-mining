@@ -4,6 +4,8 @@ title: "Air-HUIM: Exact High-Utility Itemset Mining Under a Hard Memory Budget o
 authors:
   - family-names: Gupta
     given-names: Arya
+  - family-names: Malakar
+    given-names: Avirupa
 version: 1.0.0
 date-released: 2026-11-07
 repository-code: "https://github.com/CyberKnight-cmd/pocket-data-mining"
