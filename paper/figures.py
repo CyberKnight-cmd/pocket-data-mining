@@ -297,5 +297,38 @@ def fig_speed():
     save(fig, "speed.pdf")
 
 
-for f in (fig_trace, fig_peak, fig_outcomes, fig_curve, fig_lgsr, fig_threads, fig_speed):
+# 8. Thread scaling on the laptop (1-16 threads, 8 GB). Wall time, not speed-up: H&M HUI-Miner has no 1-thread time.
+def fig_threads_laptop():
+    root = os.path.join(os.environ.get("LAPTOP_DATA", os.path.expanduser("~/.cache/air-huim-bench/laptop/data")), "runs")
+    t = defaultdict(dict)
+    for d in os.listdir(root):
+        try:
+            j = json.load(open(os.path.join(root, d, "job.json")))
+            r = json.load(open(os.path.join(root, d, "result.json")))
+        except (OSError, ValueError):
+            continue
+        if j["experiment"] == "big-threads" and j.get("runtime_version") == "r6" and r["status"] in ("ok", "cap"):
+            t[(j["dataset"], j["algo"])][j["threads"]] = (r["wall_s"] / 60, r["status"])
+    fig, axes = plt.subplots(1, 3, figsize=(COL, 1.6), sharey=True)
+    for ax, ds, title in zip(axes, ("lgsr", "chainstore-x40", "hm"), ("LGSR", r"chainstore$\times$40", "H&M")):
+        for a, color in zip(("efim", "fhm", "hui-miner"), ALGO_COLORS):
+            p = t[(ds, a)]
+            xs = sorted(p)
+            ax.plot(xs, [p[x][0] for x in xs], color=color, marker="o", ms=3, label=NAMES[a])
+            cx = [x for x in xs if p[x][1] == "cap"]
+            ax.scatter(cx, [p[x][0] for x in cx], s=22, facecolor="white", edgecolor=color, zorder=3, lw=1)
+        ax.set(xscale="log", yscale="log", title=title, xlabel="threads")
+        ax.set_xticks([1, 2, 4, 8, 16], ["1", "2", "4", "8", "16"])
+        ax.minorticks_off()
+    axes[0].set_ylabel("wall time (min)")
+    axes[0].set_yticks([0.1, 1, 10, 60], ["0.1", "1", "10", "60"])
+    h, l = axes[0].get_legend_handles_labels()
+    h.append(plt.Line2D([], [], ls="", marker="o", ms=4, mfc="white", mec=MUTED))
+    l.append("1 h cap")
+    fig.legend(h, l, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False, handlelength=1.4)
+    fig.subplots_adjust(wspace=0.1)
+    save(fig, "threads_laptop.pdf")
+
+
+for f in (fig_trace, fig_peak, fig_outcomes, fig_curve, fig_lgsr, fig_threads, fig_speed, fig_threads_laptop):
     f()

@@ -600,8 +600,14 @@ either way.}
 Fig.~\ref{fig:threads} shows Air-HUIM on the Pi with 1, 2 and 4 threads at 1\,GB. Speed-ups from
 1 to 4 threads range from 1.1$\times$ to 3.7$\times$ (median 1.8$\times$). Short runs (EFIM on
 chainstore and kosarak, under 12\,s) are dominated by reading the input, which is sequential. FHM
-and HUI-Miner on accidents are slower at 4 threads than at 2. \pending{laptop 1--16 threads on
-LGSR, chainstore$\times$40 and H\&M; queued after the 1-thread table}
+and HUI-Miner on accidents are slower at 4 threads than at 2.
+
+On the laptop we ran the three large datasets with 1 to 16 threads at 8\,GB
+(Fig.~\ref{fig:threads-laptop}); the 42 of 45 runs that finished within the 1\,h cap were all exact.
+HUI-Miner scales best: on LGSR it goes from 37\,min at one thread to 6\,min at 16 (6.2$\times$),
+and on chainstore$\times$40 and H\&M it finishes only with two and four or more threads,
+respectively. FHM gains 1.5--1.9$\times$ from 1 to 16 threads. EFIM spends most of its 10\,s to
+80\,s reading the input and does not speed up; on LGSR it is 5\% slower at 16 threads than at one.
 
 \begin{figure}[t]
 \centering
@@ -609,6 +615,14 @@ LGSR, chainstore$\times$40 and H\&M; queued after the 1-thread table}
 \caption{Speed-up over one thread on the 4-core Pi (1\,GB budget). HUI-Miner scales best; EFIM's
 short runs are dominated by sequential input reading.}
 \label{fig:threads}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig/threads_laptop.pdf}
+\caption{Wall time against threads on the 16-thread laptop (8\,GB budget, log scales). Hollow
+circles: stopped at the 1\,h cap.}
+\label{fig:threads-laptop}
 \end{figure}
 
 
